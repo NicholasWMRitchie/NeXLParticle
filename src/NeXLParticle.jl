@@ -1,6 +1,18 @@
 using CSV
 using DataFrames
 using PeriodicTable
+using DataStructures
+
+struct Zepellin
+    headerfile::String
+    header::Dict{String,String}
+    columns::Vector{Vector{String}}
+    data::DataFrame
+
+    function Zepellin(headerfilename::String)
+        new(headerfilename, loadZep(headerfilename)...)
+    end
+end
 
 function loadZep(headerfilename::String)
     remapcolumnnames = Dict{String,String}(
@@ -50,44 +62,53 @@ function loadZep(headerfilename::String)
         "VERIFIED_CLASS" => "VERIFIEDCLASS",
         "EDGE_ROUGHNESS" => "EDGEROUGHNESS",
         "COMP_HASH" => "COMPHASH",
-        "PSEM_CLASS" => "CLASS"
+        "PSEM_CLASS" => "CLASS",
     )
-    columnnames(zep::Zepellin) = map(cn->get(remapcolumnnames, cn, cn), map(c->c[1], zep.columns))
+    columnnames(cols) = map(cn -> get(remapcolumnnames, cn, cn), map(c -> c[1], cols))
     header, columns, hdr = Dict{String,String}(), [], true
     for line in readlines(headerfilename)
         if hdr
-            (k, v) = strip.(split(line,"="))
-            header[k] = v
-            hdr = !isequal(uppercase(k),"PARTICLE_PARAMETERS")
+            p = findfirst(c->c=='=', line)
+            if !isnothing(p)
+                (k, v) = line[1:p-1], line[p+1:end]
+                header[k] = v
+            end
+            hdr = !isequal(uppercase(k), "PARTICLE_PARAMETERS")
         else
-            push!(columns, string.(strip.(split(line,"\t"))))
+            push!(columns, string.(strip.(split(line, "\t"))))
         end
     end
-    pxz = CSV.File(replace(headerfile,".hdz"=>".pxz"), header=columnnames(columns), normalizenames=true) |> DataFrame
-    categorical!(pxz, :CLASS) # Convert class column to pxz
-    return ( header, columns, pxz )
+    pxz = CSV.File(replace(headerfilename, ".hdz" => ".pxz"), header = columnnames(columns), normalizenames = true) |> DataFrame
+
+    sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
+    sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
+    clsnames = map(c -> header[c], sortedkeys)
+    hcat(pxz, DataFrame(CLASSNAME=map(cl->get(clsnames,convert(Int,cl)+1,"####"),z.data[:,:CLASS])))
+    categorical!(pxz, :CLASS, compress=true) # Convert class column to pxz
+    categorical!(pxz, :CLASSNAME, compress=true) # Convert class column to pxz
+    return (header, columns, pxz)
 end
 
-struct Zepellin
-    headerfile::String
-    header::Dict{String,String}
-    columns::Vector{NTuple{3, String}}
-    data::DataFrame
-
-    function Zepellin(headerfilename::String)
-        new(headerfilename, loadZep(headerfilename)...)
-    end
+function Base.show(io::IO, zep::Zepellin)
+    print(io,"Zepellin[$(zep.headerfile),N=$(size(z.data)[1])]")
 end
+
 
 function classnames(zep::Zepellin)
-    sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int,c2[6:end]))
-    return (c->get(header, c,"")).(sort(collect(filter(c->!isnothing(match(r"^CLASS\d+",c)),keys(zep.header))),lt=sortclasses))
+    sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
+    return (c -> get(zep.header, c, "")).(sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(zep.header))), lt = sortclasses))
 end
 
 function elements(zep::Zepellin)
-    sortelms(c1, c2) = isless(parse(Int, c1[5:end]), parse(Int,c2[5:end]))
-    elms = (c->get(header, c,"")).(sort(collect(filter(c->!isnothing(match(r"^ELEM\d+",c)),keys(zep.header))),lt=sortelms))
-    return map(s->elements[parse(Int,split(s, " ")[2])],elms)
+    sortelms(c1, c2) = isless(parse(Int, c1[5:end]), parse(Int, c2[5:end]))
+    elms = (c -> get(zep.header, c, "")).(sort(collect(filter(c -> !isnothing(match(r"^ELEM\d+", c)), keys(zep.header))), lt = sortelms))
+    return map(s -> PeriodicTable.elements[parse(Int, split(s, " ")[2])], elms)
+end
+
+function header(zep::Zepellin)
+    keep(k) = !mapreduce(ty->startswith(k, uppercase(ty)), (a,b)->a||b, ("CLASS","ELEM","MAG"))
+    kys = filter(keep, keys(zep.header))
+    return DataStructures.SortedDict(filter(kv->kv[1] in kys, zep.header))
 end
 
 data(zep::Zepellin) = zep.data

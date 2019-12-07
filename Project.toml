@@ -3,9 +3,18 @@ uuid = "9f92fee6-ed62-42c3-b009-0e4f934456c2"
 version = "0.0.1"
 
 [deps]
+BoteSalvatICX = "fe54227b-96c7-489b-9963-dd1ce2905f30"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 CategoricalArrays = "324d7699-5711-5eae-9e2f-1d82baa6b597"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+DataStructures = "864edb3b-99cc-5e75-8d2d-829cb0a9cfe8"
+FFAST = "10506e09-08cd-5f0b-aee5-631de1bcc925"
+FileIO = "5789e2e9-d7fb-5bc7-8068-2c6fae9b9549"
+ImageMagick = "6218d12a-5da1-5696-b52f-db25d2ecc6d1"
+Images = "916415d5-f1e6-5110-898d-aaa5f9f070e0"
+NeXLCore = "93a0284f-3680-435e-8d39-dd6e52a1dbc8"
+NeXLSpectrum = "6c578565-ca7f-4012-afc4-b8412d85af92"
+NeXLUncertainties = "7127f3d6-1721-46bc-bb38-8fc703dd438e"
 PeriodicTable = "7b2266bf-644c-5ea3-82d8-af4bbd25a884"
 
 [compat]

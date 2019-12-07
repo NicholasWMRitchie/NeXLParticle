@@ -109,7 +109,7 @@ const TIFF_SOFTWARE = 305 # ASCII
 function _parseDesc(desc::AbstractString)
     number(v) = parse(Float64, match(r"([+-]?[0-9]+[.]?[0-9]*)",v)[1])
     date, time = missing, missing
-    res=Dict{Symbol, Any}()
+    res=Dict{Symbol, Float64}()
     stagePos = Dict{Symbol,Any}()
     for item in split(desc,"\n")
         (k, v) = split(item,"=")
@@ -236,10 +236,10 @@ function FileIO.load(ios::Stream{ASPEX_TIFF}; withImgs=false)
     end
     if withImgs && (!ismissing(res))
         try
-            seekstart(ios)
-            res[:Image]=load(Stream(format"TIFF",ios))
+            seekstart(ios.io)
+            res[:Image]=load(Stream(format"TIFF",ios.io))
         catch err
-            @error "Unable to read images from $filename."
+            @error "Unable to read images from $(ios.name)."
         end
     end
     return res

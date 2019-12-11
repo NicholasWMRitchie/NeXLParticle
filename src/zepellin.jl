@@ -106,7 +106,7 @@ function classes(zep::Zepellin)
     return (c -> get(zep.header, c, "")).(sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(zep.header))), lt = sortclasses))
 end
 
-function NeXLSpectrum.elements(zep::Zepellin)
+function elements(zep::Zepellin)
     sortelms(c1, c2) = isless(parse(Int, c1[5:end]), parse(Int, c2[5:end]))
     elms = (c -> get(zep.header, c, "")).(sort(collect(filter(c -> !isnothing(match(r"^ELEM\d+", c)), keys(zep.header))), lt = sortelms))
     return map(s -> PeriodicTable.elements[parse(Int, split(s, " ")[2])], elms)

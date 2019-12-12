@@ -1,8 +1,11 @@
 
+using FileIO
+
 struct Zepellin
     headerfile::String
     header::Dict{String,String}
     columns::Vector{Vector{String}}
+    elms::Array{Element}
     data::DataFrame
 
     function Zepellin(headerfilename::String)
@@ -12,14 +15,19 @@ struct Zepellin
         headerfile::String,
         header::Dict{String,String},
         columns::Vector{Vector{String}},
-        data::DataFrame
+        data::DataFrame,
     )
-        new(headerfile, header, columns, data)
+        new(
+            headerfile,
+            header,
+            columns,
+            filter(col -> col in names(data), map(z -> Symbol(elements[z].symbol), 1:94)),
+            data,
+        )
     end
 end
 
-Base.copy(z::Zepellin) =
-    Zepellin(z.headerfile, copy(z.header), copy(z.columns), copy(z.data) )
+Base.copy(z::Zepellin) = Zepellin(z.headerfile, copy(z.header), copy(z.columns), copy(z.data))
 
 function loadZep(headerfilename::String)
     remapcolumnnames = Dict{String,String}(
@@ -75,7 +83,7 @@ function loadZep(headerfilename::String)
     header, columns, hdr = Dict{String,String}(), [], true
     for line in readlines(headerfilename)
         if hdr
-            p = findfirst(c->c=='=', line)
+            p = findfirst(c -> c == '=', line)
             if !isnothing(p)
                 (k, v) = line[1:p-1], line[p+1:end]
                 header[k] = v
@@ -85,37 +93,74 @@ function loadZep(headerfilename::String)
             push!(columns, string.(strip.(split(line, "\t"))))
         end
     end
-    pxz = CSV.File(replace(headerfilename, ".hdz" => ".pxz"), header = columnnames(columns), normalizenames = true) |> DataFrame
+    pxz = CSV.File(
+        replace(headerfilename, r".[h|H][d|D][z|Z]$" => ".pxz"),
+        header = columnnames(columns),
+        normalizenames = true,
+    ) |> DataFrame
 
     sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
     sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
     clsnames = map(c -> header[c], sortedkeys)
-    pxz=hcat(pxz, DataFrame(CLASSNAME=map(cl->get(clsnames,convert(Int,cl)+1,"####"),pxz[:,:CLASS])))
-    categorical!(pxz, :CLASS, compress=true) # Convert class column to pxz
-    categorical!(pxz, :CLASSNAME, compress=true) # Convert class column to pxz
-    return (header, columns, pxz)
+    pxz = hcat(pxz, DataFrame(CLASSNAME = map(cl -> get(clsnames, convert(Int, cl) + 1, "####"), pxz[:, :CLASS])))
+    categorical!(pxz, :CLASS, compress = true) # Convert class column to pxz
+    categorical!(pxz, :CLASSNAME, compress = true) # Convert class column to pxz
+    cols = names(pxz)
+    elms = filter(z -> Symbol(z.symbol) in cols, PeriodicTable.elements[1:94])
+    return (header, columns, elms, pxz)
 end
 
 function Base.show(io::IO, zep::Zepellin)
-    print(io,"Zepellin[$(zep.headerfile),$(size(zep.data))]")
+    print(io, "Zepellin[$(zep.headerfile),$(size(zep.data))]")
 end
-
 
 function classes(zep::Zepellin)
     sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
-    return (c -> get(zep.header, c, "")).(sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(zep.header))), lt = sortclasses))
+    return (c -> get(zep.header, c, "")).(sort(
+        collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(zep.header))),
+        lt = sortclasses,
+    ))
 end
 
-function elements(zep::Zepellin)
-    sortelms(c1, c2) = isless(parse(Int, c1[5:end]), parse(Int, c2[5:end]))
-    elms = (c -> get(zep.header, c, "")).(sort(collect(filter(c -> !isnothing(match(r"^ELEM\d+", c)), keys(zep.header))), lt = sortelms))
-    return map(s -> PeriodicTable.elements[parse(Int, split(s, " ")[2])], elms)
-end
+elements(zep::Zepellin) = zep.elms
 
 function header(zep::Zepellin)
-    keep(k) = !mapreduce(ty->startswith(k, uppercase(ty)), (a,b)->a||b, ("CLASS","ELEM","MAG"))
+    keep(k) = !mapreduce(ty -> startswith(k, uppercase(ty)), (a, b) -> a || b, ("CLASS", "ELEM", "MAG"))
     kys = filter(keep, keys(zep.header))
-    return DataStructures.SortedDict(filter(kv->kv[1] in kys, zep.header))
+    return DataStructures.SortedDict(filter(kv -> kv[1] in kys, zep.header))
 end
 
 data(zep::Zepellin) = zep.data
+
+
+"""
+    zep[123] # where zep is a Zepellin
+
+Returns the Spectrum (with images) associated with the particle at row
+"""
+Base.getindex(zep::Zepellin, row::Int) = spectrum(zep, row, true)
+
+"""
+    spectrum(zep::Zepellin, row::Int, withImgs = true)::Union{Spectrum, missing}
+
+Returns the Spectrum (with images) associated with the particle at row.  If withImgs
+is true, the associated image or images are read.
+"""
+function spectrum(zep::Zepellin, row::Int, withImgs = true)::Union{Spectrum,Missing}
+    mag = hasproperty(zep, :MAG) ? zep[row, :MAG] : 0
+    file = joinpath(dirname(zep.headerfile), "MAG$(mag)", "00000$(row)"[end-4:end] * ".tif")
+    if !isfile(file)
+        file = joinpath(dirname(zep.headerfile), "MAG$(mag)", "00000$(row)"[end-3:end] * ".tif")
+    end
+    at = missing
+    if isfile(file)
+        try
+            at = loadAspexTIFF(file, withImgs = withImgs)
+            at[:Name] = "P[$(zep[row, :Number]), $(zep[row, :ClassName])]"
+            at[:Signature] = Dict(sig[z] => zep.data[row, Symbol(elm.symbol)] for elm in zep.elms)
+        catch
+            @info "$(file) does not appear to be a valid ASPEX spectrum TIFF."
+        end
+    end
+    return at
+end

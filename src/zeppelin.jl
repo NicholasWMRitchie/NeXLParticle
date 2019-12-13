@@ -24,7 +24,7 @@ struct Zeppelin
             headerfile,
             header,
             columns,
-            filter(col -> col in names(data), map(elm -> convert(Symbol,elm)), PeriodicTable.elements),
+            filter(col -> col in names(data), map(elm -> convert(Symbol,elm)), PeriodicTable.elements[1:94]),
             data,
         )
     end
@@ -52,6 +52,8 @@ function loadZep(headerfilename::String)
         "DAVE" => "DAVG",
         "PERIM" => "PERIMETER",
         "ORIENT" => "ORIENTATION",
+        "LIVE_TIME" => "LIVETIME",
+        "FIT_QUAL" => "FITQUAL",
         "MAG_INDEX" => "MAGINDEX",
         "FIRST_ELEM" => "FIRSTELM",
         "SECOND_ELEM" => "SECONDELM",
@@ -109,7 +111,7 @@ function loadZep(headerfilename::String)
     categorical!(pxz, :CLASS, compress = true) # Convert class column to pxz
     categorical!(pxz, :CLASSNAME, compress = true) # Convert class column to pxz
     cols = names(pxz)
-    elms = filter(z -> convert(Symbol, z) in cols, PeriodicTable.elements)
+    elms = filter(z -> convert(Symbol, z) in cols, PeriodicTable.elements[1:94])
     return (header, columns, elms, pxz)
 end
 
@@ -135,6 +137,7 @@ end
 
 data(zep::Zeppelin) = zep.data
 
+eachparticle(zep::Zeppelin) = 1:size(zep.data, 1)
 
 """
     zep[123] # where zep is a Zeppelin
@@ -188,3 +191,9 @@ RJLG_ZEPPELIN=format"RJLG Zeppelin"
 load(file::File{RJLG_ZEPPELIN}) = Zeppelin(file.filename)
 
 FileIO.add_format(RJLG_ZEPPELIN, iszeppelin, [ ".hdz" ])
+
+const COMPOSITIONAL_COLUMNS = ( :FIRST, :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM, :FIRSTELM, :SECONDELM, :THIRDELM,
+   :FOURTHELM, :COUNTS1, :COUNTS2, :COUNTS3, :COUNTS4, :FIRSTPCT, :SECONDPCT, :THIRDPCT, :FOURTHPCT, :FIRSTPCT,
+:SECONDPCT, :THIRDPCT, :FOURTHPCT, :TYPE4ET, :FITQUAL, :COMPHASH )
+
+const CLASS_COLUMNS =  ( :VERIFIEDCLASS, :CLASS, :CLASSNAME )

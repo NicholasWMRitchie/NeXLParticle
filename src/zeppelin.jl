@@ -24,7 +24,7 @@ struct Zeppelin
             headerfile,
             header,
             columns,
-            filter(col -> col in names(data), map(z -> convert(Symbol,elements[z])), 1:94),
+            filter(col -> col in names(data), map(elm -> convert(Symbol,elm)), PeriodicTable.elements),
             data,
         )
     end
@@ -109,7 +109,7 @@ function loadZep(headerfilename::String)
     categorical!(pxz, :CLASS, compress = true) # Convert class column to pxz
     categorical!(pxz, :CLASSNAME, compress = true) # Convert class column to pxz
     cols = names(pxz)
-    elms = filter(z -> convert(Symbol, z) in cols, PeriodicTable.elements[1:94])
+    elms = filter(z -> convert(Symbol, z) in cols, PeriodicTable.elements)
     return (header, columns, elms, pxz)
 end
 
@@ -125,7 +125,7 @@ function classes(zep::Zeppelin)
     ))
 end
 
-elements(zep::Zeppelin) = zep.elms
+NeXLCore.elms(zep::Zeppelin) = zep.elms
 
 function header(zep::Zeppelin)
     keep(k) = !mapreduce(ty -> startswith(k, uppercase(ty)), (a, b) -> a || b, ("CLASS", "ELEM", "MAG"))

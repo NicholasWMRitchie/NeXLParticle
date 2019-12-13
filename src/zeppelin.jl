@@ -1,17 +1,20 @@
 
 using FileIO
 
-struct Zepellin
+Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
+
+struct Zeppelin
     headerfile::String
     header::Dict{String,String}
     columns::Vector{Vector{String}}
     elms::Array{Element}
     data::DataFrame
 
-    function Zepellin(headerfilename::String)
+    function Zeppelin(headerfilename::String)
         new(headerfilename, loadZep(headerfilename)...)
     end
-    function Zepellin( #
+
+    function Zeppelin( #
         headerfile::String,
         header::Dict{String,String},
         columns::Vector{Vector{String}},
@@ -21,13 +24,13 @@ struct Zepellin
             headerfile,
             header,
             columns,
-            filter(col -> col in names(data), map(z -> Symbol(elements[z].symbol), 1:94)),
+            filter(col -> col in names(data), map(z -> convert(Symbol,elements[z])), 1:94),
             data,
         )
     end
 end
 
-Base.copy(z::Zepellin) = Zepellin(z.headerfile, copy(z.header), copy(z.columns), copy(z.data))
+Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.columns), copy(z.data))
 
 function loadZep(headerfilename::String)
     remapcolumnnames = Dict{String,String}(
@@ -106,15 +109,15 @@ function loadZep(headerfilename::String)
     categorical!(pxz, :CLASS, compress = true) # Convert class column to pxz
     categorical!(pxz, :CLASSNAME, compress = true) # Convert class column to pxz
     cols = names(pxz)
-    elms = filter(z -> Symbol(z.symbol) in cols, PeriodicTable.elements[1:94])
+    elms = filter(z -> convert(Symbol, z) in cols, PeriodicTable.elements[1:94])
     return (header, columns, elms, pxz)
 end
 
-function Base.show(io::IO, zep::Zepellin)
-    print(io, "Zepellin[$(zep.headerfile),$(size(zep.data))]")
+function Base.show(io::IO, zep::Zeppelin)
+    print(io, "Zeppelin[$(zep.headerfile),$(size(zep.data))]")
 end
 
-function classes(zep::Zepellin)
+function classes(zep::Zeppelin)
     sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
     return (c -> get(zep.header, c, "")).(sort(
         collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(zep.header))),
@@ -122,45 +125,66 @@ function classes(zep::Zepellin)
     ))
 end
 
-elements(zep::Zepellin) = zep.elms
+elements(zep::Zeppelin) = zep.elms
 
-function header(zep::Zepellin)
+function header(zep::Zeppelin)
     keep(k) = !mapreduce(ty -> startswith(k, uppercase(ty)), (a, b) -> a || b, ("CLASS", "ELEM", "MAG"))
     kys = filter(keep, keys(zep.header))
     return DataStructures.SortedDict(filter(kv -> kv[1] in kys, zep.header))
 end
 
-data(zep::Zepellin) = zep.data
+data(zep::Zeppelin) = zep.data
 
 
 """
-    zep[123] # where zep is a Zepellin
+    zep[123] # where zep is a Zeppelin
 
 Returns the Spectrum (with images) associated with the particle at row
 """
-Base.getindex(zep::Zepellin, row::Int) = spectrum(zep, row, true)
+Base.getindex(zep::Zeppelin, row::Int) = spectrum(zep, row, true)
 
 """
-    spectrum(zep::Zepellin, row::Int, withImgs = true)::Union{Spectrum, missing}
+    spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum, missing}
 
 Returns the Spectrum (with images) associated with the particle at row.  If withImgs
 is true, the associated image or images are read.
 """
-function spectrum(zep::Zepellin, row::Int, withImgs = true)::Union{Spectrum,Missing}
-    mag = hasproperty(zep, :MAG) ? zep[row, :MAG] : 0
-    file = joinpath(dirname(zep.headerfile), "MAG$(mag)", "00000$(row)"[end-4:end] * ".tif")
+function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Missing}
+    mag = hasproperty(zep.data, :MAG) ? convert(Int,trunc(zep.data[row, :MAG])) : 0
+    part = zep.data[row, :NUMBER]
+    file = joinpath(dirname(zep.headerfile), "MAG$(mag)", "00000$(part)"[end-4:end] * ".tif")
     if !isfile(file)
-        file = joinpath(dirname(zep.headerfile), "MAG$(mag)", "00000$(row)"[end-3:end] * ".tif")
+        file = joinpath(dirname(zep.headerfile), "MAG$(mag)", "00000$(part)"[end-3:end] * ".tif")
     end
     at = missing
     if isfile(file)
         try
             at = readAspexTIFF(file, withImgs = withImgs)
-            at[:Name] = "P[$(zep[row, :Number]), $(zep[row, :ClassName])]"
-            at[:Signature] = Dict(sig[z] => zep.data[row, Symbol(elm.symbol)] for elm in zep.elms)
+            at[:Name] = "P[$part, $(zep.data[row, :CLASSNAME])]"
+            at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in zep.elms))
         catch
             @info "$(file) does not appear to be a valid ASPEX spectrum TIFF."
         end
+    else
+        @info "Can't find $file."
     end
     return at
 end
+
+function iszeppelin(filename::String)
+    res=false
+    open(filename) do ios
+        seekstart(ios)
+        if isequal(uppercase(String(read(ios,11))),"PARAMETERS=")
+            readline(ios) # read the rest of the line
+            res = isequal(uppercase(readline(ios)),"HEADER_FMT=ZEPP_1")
+        end
+    end
+    return res
+end
+
+RJLG_ZEPPELIN=format"RJLG Zeppelin"
+
+load(file::File{RJLG_ZEPPELIN}) = Zeppelin(file.filename)
+
+FileIO.add_format(RJLG_ZEPPELIN, iszeppelin, [ ".hdz" ])

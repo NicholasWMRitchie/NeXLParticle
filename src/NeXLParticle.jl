@@ -10,12 +10,14 @@ using Reexport
 @reexport using NeXLSpectrum
 
 
-include("zepellin.jl")
-export Zepellin # struct holding a hdz/pxz file pair
+include("zeppelin.jl")
+export Zeppelin # struct holding a hdz/pxz file pair
 export classes # An ordered list of particle classes
 export elements # An ordered list of elements in quant table
 export header # A alphabetically sorted list of header items
 export data # Provides access to the DataFrame containing the particle data
+export iszeppelin # Is this IOStream or filename a Zeppelin file?
+export spectrum # read a spectrum associate with a Zeppelin file (or missing)
 
 include("signature.jl")
 export signature # Compures the particle signature

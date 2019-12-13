@@ -155,7 +155,7 @@ function spectrum(zep::Zepellin, row::Int, withImgs = true)::Union{Spectrum,Miss
     at = missing
     if isfile(file)
         try
-            at = loadAspexTIFF(file, withImgs = withImgs)
+            at = readAspexTIFF(file, withImgs = withImgs)
             at[:Name] = "P[$(zep[row, :Number]), $(zep[row, :ClassName])]"
             at[:Signature] = Dict(sig[z] => zep.data[row, Symbol(elm.symbol)] for elm in zep.elms)
         catch

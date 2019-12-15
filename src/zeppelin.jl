@@ -163,10 +163,14 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Miss
     if isfile(file)
         try
             at = readAspexTIFF(file, withImgs = withImgs)
+        catch
+            @info "$(file) does not appear to be a valid ASPEX spectrum TIFF."
+        end
+        try
             at[:Name] = "P[$part, $(zep.data[row, :CLASSNAME])]"
             at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in zep.elms))
         catch
-            @info "$(file) does not appear to be a valid ASPEX spectrum TIFF."
+            @info "Error adding properties to ASPEX TIFF file."
         end
     else
         @info "Can't find $file."

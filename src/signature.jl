@@ -85,7 +85,7 @@ end
 
 abstract type CullingRule end
 
-struct NSigmaCulling
+struct NSigmaCulling <: CullingRule
     nsigma::Float64
 end
 
@@ -101,7 +101,7 @@ function quantify(
     refs::Dict{Element,Spectrum},
     strip::Vector{Element} = [n"C"], # Element to not include in table
     special::Vector{Element} = [n"O"], # Element for special treatment in signature
-    cullRule::NSigmaCulling = NSigmaCulling(3.0)
+    cullRule::CullingRule = NSigmaCulling(3.0)
 )
     # Build the filtered references
     filt = buildfilter(NeXLSpectrum.GaussianFilter, det)

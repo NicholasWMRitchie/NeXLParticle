@@ -47,7 +47,7 @@ version = "0.5.8"
 
 [[BoteSalvatICX]]
 deps = ["Requires"]
-path = "C:\\Users\\nicho\\.julia\\dev\\BoteSalvatICX"
+path = "C:\\Users\\nritchie\\.julia\\dev\\BoteSalvatICX"
 uuid = "fe54227b-96c7-489b-9963-dd1ce2905f30"
 version = "0.0.1"
 
@@ -170,7 +170,7 @@ uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[FFAST]]
 deps = ["CSV", "DataFrames", "Requires"]
-path = "C:\\Users\\nicho\\.julia\\dev\\FFAST"
+path = "C:\\Users\\nritchie\\.julia\\dev\\FFAST"
 uuid = "10506e09-08cd-5f0b-aee5-631de1bcc925"
 version = "0.0.2"
 
@@ -415,34 +415,32 @@ version = "0.3.3"
 
 [[NeXLCore]]
 deps = ["BoteSalvatICX", "CSV", "Colors", "DataFrames", "FFAST", "NeXLUncertainties", "PeriodicTable", "PhysicalConstants", "Printf", "Reexport", "Requires", "Unitful"]
-path = "C:\\Users\\nicho\\.julia\\dev\\NeXLCore"
+path = "C:\\Users\\nritchie\\.julia\\dev\\NeXLCore"
 uuid = "93a0284f-3680-435e-8d39-dd6e52a1dbc8"
 version = "0.0.2"
 
 [[NeXLMatrixCorrection]]
 deps = ["BoteSalvatICX", "DataFrames", "FFAST", "NeXLCore", "NeXLUncertainties", "PeriodicTable", "Reexport", "Requires", "TimerOutputs"]
-git-tree-sha1 = "62d0ed0a1169fbaf5dc1540e52ef6d71e81f7db7"
-repo-rev = "master"
-repo-url = "https://github.com/NicholasWMRitchie/NeXLMatrixCorrection.jl.git"
+path = "C:\\Users\\nritchie\\.julia\\dev\\NeXLMatrixCorrection"
 uuid = "3ab34fdf-2fe8-473b-9b20-30f5809db337"
 version = "0.0.1"
 
 [[NeXLSpectrum]]
 deps = ["BoteSalvatICX", "Colors", "DataFrames", "Dates", "FFAST", "FileIO", "ImageMagick", "Images", "LinearAlgebra", "MultivariateStats", "NeXLCore", "NeXLMatrixCorrection", "NeXLUncertainties", "PeriodicTable", "Polynomials", "Printf", "Reexport", "Requires", "SparseArrays", "TimerOutputs"]
-path = "C:\\Users\\nicho\\.julia\\dev\\NeXLSpectrum"
+path = "C:\\Users\\nritchie\\.julia\\dev\\NeXLSpectrum"
 uuid = "6c578565-ca7f-4012-afc4-b8412d85af92"
 version = "0.0.2"
 
 [[NeXLUncertainties]]
 deps = ["DataFrames", "LinearAlgebra", "Printf", "SparseArrays"]
-path = "C:\\Users\\nicho\\.julia\\dev\\NeXLUncertainties"
+path = "C:\\Users\\nritchie\\.julia\\dev\\NeXLUncertainties"
 uuid = "7127f3d6-1721-46bc-bb38-8fc703dd438e"
 version = "0.0.2"
 
 [[OffsetArrays]]
-git-tree-sha1 = "27f32af4e7b11f5aa9f3cad60b777cd042af149a"
+git-tree-sha1 = "87d0a91efe29352d5caaa271ae3927083c096e33"
 uuid = "6fe1bfb0-de20-5000-8ca7-80f57d26f881"
-version = "0.11.3"
+version = "0.11.4"
 
 [[OpenBLAS_jll]]
 deps = ["Libdl", "Pkg"]

@@ -24,17 +24,22 @@ function askratios(ffr::FilterFitResult)::Vector{KRatio}
     res = KRatio[]
     for lbl in keys(ffr.kratios)
         if lbl isa NeXLSpectrum.CharXRayLabel
-            push!(res, KRatio( #
-                lbl.xrays,
-                ffr.label.spec.properties,
-                lbl.spec.properties,
-                lbl.spec[:Composition],
-                NeXLUncertainties.uncertainvalue(lbl, ffr.kratios),
-            ))
+            push!(
+                res,
+                KRatio( #
+                    lbl.xrays,
+                    ffr.label.spec.properties,
+                    lbl.spec.properties,
+                    lbl.spec[:Composition],
+                    NeXLUncertainties.uncertainvalue(lbl, ffr.kratios),
+                ),
+            )
         end
     end
     return res
 end
+
+
 
 """
     signature( #
@@ -52,11 +57,12 @@ un-normalized.
 """
 function signature( #
     krs::Vector{KRatio},
-    special::Vector{Element} = Vector[ n"O", ],
+    special::Vector{Element} = Vector[n"O",],
     mc::Type{<:MatrixCorrection} = NeXLMatrixCorrection.XPPCorrection,
-    fc::Type{<:FluorescenceCorrection} = ReedFluorescence
+    fc::Type{<:FluorescenceCorrection} = ReedFluorescence,
 )::Dict{Element,<:AbstractFloat}
     kzs = Dict{Element,AbstractFloat}()
+    #Scale the k-ratios relative to a pure element...
     for kr in optimizeks(SimpleKRatioOptimizer(1.3), krs)
         # k = (Iunk/Istd)/(Istd/Iz) = (Iunk/Iz) = kr.kratio/k(unk,std)
         kstd = isapprox(kr.standard[kr.element], 1.0, atol = 0.001) ? #
@@ -67,19 +73,20 @@ function signature( #
             kr.element,
             kr.lines, #
             kr.stdProps[:BeamEnergy],
-            haskey(kr.unkProps, :BeamEnergy) ? kr.unkProps[:BeamEnergy] : kr.stdProps[:BeamEnergy], #
+            kr.unkProps[:BeamEnergy],
             kr.stdProps[:TakeOffAngle],
-            haskey(kr.unkProps, :TakeOffAngle) ? kr.unkProps[:TakeOffAngle] : kr.stdProps[:TakeOffAngle], #
+            kr.unkProps[:TakeOffAngle], #
             mc,
             fc,
         )
-        kzs[kr.element] = kr.kratio / kstd
+        kzs[kr.element] = kr.kratio * kstd
     end
     res = Dict{Element,AbstractFloat}()
-    notspecial = filter(kr -> !(kr.element in special), krs)
-    norm = sum(NeXLUncertainties.value(kr.kratio) for kr in notspecial)
-    res = Dict(kr.element => kr.kratio / norm for kr in notspecial)
-    merge!(res, Dict(kr.element => kr.kratio for kr in filter(kr -> kr.element in special, krs)))
+    onorm = sum(NeXLUncertainties.value(kzs[elm]) for elm in keys(kzs))
+    res = Dict(elm => (kzs[elm] / onorm) for elm in special)
+    notspecial = filter(elm -> !(elm in special), keys(kzs))
+    norm = sum(NeXLUncertainties.value(kzs[elm]) for elm in notspecial)
+    merge!(res, Dict(elm => (kzs[elm] / norm) for elm in notspecial))
     return res
 end
 
@@ -91,18 +98,19 @@ end
 
 function cull(cr::NSigmaCulling, kr::KRatio)
     k, s = NeXLUncertainties.value(kr.kratio), NeXLUncertainties.σ(kr.kratio)
-    return k > cr.nsigma*s ? kr :
-        KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0,s))
+    return k > cr.nsigma * s ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
 end
 
 function quantify(
     zep::Zeppelin,
     det::Detector,
     refs::Dict{Element,Spectrum},
+    rows::Union{Vector{Int},UnitRange{Int}}=1:1000000;
     strip::Vector{Element} = [n"C"], # Element to not include in table
     special::Vector{Element} = [n"O"], # Element for special treatment in signature
-    cullRule::CullingRule = NSigmaCulling(3.0)
+    cullRule::CullingRule = NSigmaCulling(3.0),
 )
+    rows = ismissing(rows) ? eachparticle(zep) : rows
     # Build the filtered references
     filt = buildfilter(NeXLSpectrum.GaussianFilter, det)
     filtrefs = FilteredReference[]
@@ -114,36 +122,32 @@ function quantify(
         elseif elm > n"Ba"
             lines = union(ltransitions, mtransitions)
         end
-        cfs = NeXLSpectrum.charFeature(elm, Tuple(lines), maxE=0.9*refs[elm][:BeamEnergy])
+        cfs = NeXLSpectrum.charFeature(elm, Tuple(lines), maxE = 0.9 * refs[elm][:BeamEnergy])
         fr = filter(refs[elm], det, cfs, filt, 1.0 / dose(refs[elm]))
-        append!(filtrefs,fr)
+        append!(filtrefs, fr)
         e0, toa = refs[elm][:BeamEnergy], refs[elm][:TakeOffAngle]
     end
     # Create a list of columns (by element)
-    newcols = sort(collect(filter(z -> !(z in strip), keys(refs))))
-    quant = zeros(UncertainValue, size(zep.data,1), length(newcols))
+    newcols = sort(collect(filter(elm -> !(elm in strip), keys(refs))))
+    quant = zeros(UncertainValue, size(zep.data, 1), length(newcols))
     # quantify and tabulate each particle
-    for row in eachparticle(zep)
+    for row in intersect(eachparticle(zep),rows)
         unk = spectrum(zep, row, false)
         if !ismissing(unk)
             # Particle spectra are often missing critical data items...
             unk[:ProbeCurrent], unk[:LiveTime] = get(unk, :ProbeCurrent, 1.0), get(unk, :LiveTime, 1.0)
-            unk[:BeamEnergy] = get(unk,:BeamEnergy, e0)
-            unk[:TakeOffAngle] = get(unk,:TakeOffAngle, toa)
-            res = fit(FilteredUnknownG, unk, filt, filtrefs, false)
-            culled = map(kr->cull(cullRule, kr), askratios(res))
-            krv = filter(kr->!(kr.element in strip), culled)
+            unk[:BeamEnergy], unk[:TakeOffAngle] = get(unk, :BeamEnergy, e0), get(unk, :TakeOffAngle, toa)
+            # Fit, cull and then compute the particle signature...
+            res = fit(FilteredUnknownW, unk, filt, filtrefs, true)
+            culled = map(kr -> cull(cullRule, kr), askratios(res))
+            krv = filter(kr -> !(kr.element in strip), culled)
             sig = signature(krv, special)
-            for (i, col) in enumerate(newcols)
-                quant[row,i]=100.0*sig[col]
-            end
+            quant[row, :] =  collect( 100.0 * sig[elm] for elm in newcols )
         else
-            for (i, col) in enumerate(newcols)
-                quant[row,i]=missing
-            end
+            quant[row, :] = collect( missing for _ in eachindex(newcols) )
         end
     end
-    quantRes = DataFrame( (convert(Symbol,elm)=> quant[:,i] for (i, elm) in enumerate(newcols))...)
+    quantRes = DataFrame((convert(Symbol, elm) => quant[:, i] for (i, elm) in enumerate(newcols))...)
     # First, strip out all old elemental data items
     if false
         removeme = map(elm -> convert(Symbol, elm), zep.elms)

@@ -1,5 +1,6 @@
 using NeXLMatrixCorrection
 using NeXLSpectrum
+using Base.Threads
 
 function askratios(ffr::FilterFitResult)::Vector{KRatio}
     res = KRatio[]
@@ -144,7 +145,9 @@ function quantify(
             mkdir(newdir)
         end
     end
-    for row in intersect(eachparticle(zep),rows)
+    evalrows = intersect(eachparticle(zep),rows)
+    sigs = Array{Union{Missing, Dict{Element,AbstractFloat}}}(missing, length(evalrows))
+    Threads.@threads for row in evalrows
         unk = spectrum(zep, row, false)
         if !ismissing(unk)
             # Particle spectra are often missing critical data items...
@@ -158,7 +161,12 @@ function quantify(
             end
             culled = map(kr -> cull(cullRule, kr), askratios(res))
             krv = filter(kr -> !(kr.element in strip), culled)
-            sig = signature(sigx, krv, special)
+            sigs[row] = signature(sigx, krv, special)
+        end
+    end
+    for row in evalrows
+        sig = sigs[row]
+        if !ismissing(sig)
             newrow = collect( 100.0 * sig[elm] for elm in newcols )
             quant[row, :] = newrow
             sbs = sortedbysig(newcols, NeXLUncertainties.value.(newrow))

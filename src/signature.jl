@@ -106,9 +106,11 @@ function quantify(
     det::Detector,
     refs::Dict{Element,Spectrum},
     rows::Union{Vector{Int},UnitRange{Int}}=1:1000000;
-    strip::Vector{Element} = Element[n"C"], # Element to not include in table
+    strip::Vector{Element} = Element[n"C"], # Elements to fit but not include in the result table.
     special::Vector{Element} = Element[n"O"], # Element for special treatment in signature
     cullRule::CullingRule = NSigmaCulling(3.0),
+    writeResidual::Bool = true,
+    withUncertainty::Bool = true
 )
     sortedbysig(newcols, row) =
          sort(collect(zip(newcols, row)),lt=(i1,i2)->!isless(i1[1]==n"O" ? 0.0 : i1[2],i2[1]==n"O" ? 0.0 : i2[2]))
@@ -136,6 +138,12 @@ function quantify(
     fsig = Array{Union{UncertainValue,Missing}}(missing, size(zep.data, 1), min(4, length(newcols)))
     sigx = Signature(XPPCorrection, ReedFluorescence, SimpleKRatioOptimizer(1.3))
     # quantify and tabulate each particle
+    if writeResidual
+        newdir = joinpath(dirname(zep.headerfile), "ResidualX")
+        if !isdir(newdir)
+            mkdir(newdir)
+        end
+    end
     for row in intersect(eachparticle(zep),rows)
         unk = spectrum(zep, row, false)
         if !ismissing(unk)
@@ -144,6 +152,10 @@ function quantify(
             unk[:BeamEnergy], unk[:TakeOffAngle] = get(unk, :BeamEnergy, e0), get(unk, :TakeOffAngle, toa)
             # Fit, cull and then compute the particle signature...
             res = fit(FilteredUnknownW, unk, filt, filtrefs, true)
+            if writeResidual
+                filename = joinpath(dirname(zep.headerfile), "Residual", "00000$(row)"[end-4:end] * ".msa")
+                writeEMSA(filename, NeXLSpectrum.residual(res))
+            end
             culled = map(kr -> cull(cullRule, kr), askratios(res))
             krv = filter(kr -> !(kr.element in strip), culled)
             sig = signature(sigx, krv, special)
@@ -155,12 +167,22 @@ function quantify(
         end
     end
     mss = Vector{Missing}(missing,size(zep.data,1))
+    ifavail1(fi,len) =  length(fi)≥len ? fi[:,len] : mss
+    ifavail2(fi,len) =  length(fi)≥len ? NeXLUncertainties.value.(fi[:,len]) : mss
     fourelms = DataFrame( #
-        FIRSTELM=felm[:,1], FIRSTPCT=fsig[:,1], #
-        SECONDELM = length(felm)≥2 ? felm[:,2] : mss, SECONDPCT = length(felm)≥2 ? fsig[:,2] : mss, #
-        THIRDELM = length(felm)≥3 ? felm[:,3] : mss,  THIRDPCT = length(felm)≥3 ?  fsig[:,3] : mss, #
-        FOURTHELM = length(felm)≥4 ? felm[:,4] : mss, FOURTHPCT = length(felm)≥4 ? fsig[:,4] : mss) #
-    quantRes = DataFrame((convert(Symbol, elm) => quant[:, i] for (i, elm) in enumerate(newcols))...)
+        FIRSTELM= ifavail1(felm,1), FIRSTPCT= ifavail2(fsig,1),
+        SECONDELM = ifavail1(felm, 2), SECONDPCT = ifavail2(fsig,2), #
+        THIRDELM = ifavail1(felm, 3),  THIRDPCT = ifavail2(fsig,3), #
+        FOURTHELM = ifavail1(felm, 4), FOURTHPCT = ifavail2(fsig,4)) #
+        # Return the uncertainties or not...
+    cols = Pair{Symbol,AbstractVector{Float64}}[ ]
+    for (i, elm) in enumerate(newcols)
+        push!(cols, convert(Symbol,elm)=>NeXLUncertainties.value.(quant[:,i]))
+        if withUncertainty
+            push!(cols, Symbol("U[$(elm.symbol)]")=>NeXLUncertainties.σ.(quant[:,i]))
+        end
+    end
+    quantRes = DataFrame(cols...)
     return hcat(fourelms, quantRes)
 end
 

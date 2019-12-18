@@ -120,6 +120,7 @@ function quantify(
     filt = buildfilter(NeXLSpectrum.GaussianFilter, det)
     filtrefs = FilteredReference[]
     e0, toa = NaN64, NaN64
+    # Not really worth threading
     for elm in keys(refs)
         lines = ktransitions
         if elm > n"Ca"
@@ -130,14 +131,13 @@ function quantify(
         cfs = NeXLSpectrum.charFeature(elm, Tuple(lines), maxE = 0.9 * refs[elm][:BeamEnergy])
         fr = filter(refs[elm], det, cfs, filt, 1.0 / dose(refs[elm]))
         append!(filtrefs, fr)
-        e0, toa = refs[elm][:BeamEnergy], refs[elm][:TakeOffAngle]
+        if isnan(e0)
+            e0, toa = refs[elm][:BeamEnergy], refs[elm][:TakeOffAngle]
+        end
     end
     # Create a list of columns (by element)
     newcols = sort(collect(filter(elm -> !(elm in strip), keys(refs))))
     quant = Array{Union{UncertainValue,Missing}}(missing, size(zep.data, 1), length(newcols))
-    felm = Array{Union{Element,Missing}}(missing, size(zep.data, 1), min(4, length(newcols)))
-    fsig = Array{Union{UncertainValue,Missing}}(missing, size(zep.data, 1), min(4, length(newcols)))
-    sigx = Signature(XPPCorrection, ReedFluorescence, SimpleKRatioOptimizer(1.3))
     # quantify and tabulate each particle
     if writeResidual
         newdir = joinpath(dirname(zep.headerfile), "ResidualX")
@@ -147,6 +147,7 @@ function quantify(
     end
     evalrows = intersect(eachparticle(zep),rows)
     sigs = Array{Union{Missing, Dict{Element,AbstractFloat}}}(missing, length(evalrows))
+    sigx = Signature(XPPCorrection, ReedFluorescence, SimpleKRatioOptimizer(1.3))
     Threads.@threads for row in evalrows
         unk = spectrum(zep, row, false)
         if !ismissing(unk)
@@ -164,6 +165,8 @@ function quantify(
             sigs[row] = signature(sigx, krv, special)
         end
     end
+    felm = Array{Union{Element,Missing}}(missing, size(zep.data, 1), min(4, length(newcols)))
+    fsig = Array{Union{UncertainValue,Missing}}(missing, size(zep.data, 1), min(4, length(newcols)))
     for row in evalrows
         sig = sigs[row]
         if !ismissing(sig)

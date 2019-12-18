@@ -190,6 +190,23 @@ function iszeppelin(filename::String)
     return res
 end
 
+"""
+    maxparticle(zep::Zeppelin, rows=1:100000000)
+
+Computes the maxparticle spectrum from the specified rows in a Zeppelin dataset.
+"""
+function maxparticle(zep::Zeppelin, rows=1:100000000)
+    rows = intersect(rows,eachparticle(zep))
+    maxi(a, b) = collect(max(a[i],b[i]) for i in eachindex(a))
+    mp = reduce(maxi, filter(s->!ismissing(s),(r->spectrum(zep, r, false)).(rows)))
+    # Now copy it out as a spectrum
+    i = findfirst(s->!ismissing(s),(r->spectrum(zep, r, false)).(rows))
+    sp = spectrum(zep, i, false)
+    props = copy(sp.properties)
+    props[:Name] = "MaxParticle[$(basename(zep.headerfile))]"
+    return Spectrum(sp.energy, mp, props)
+end
+
 RJLG_ZEPPELIN=format"RJLG Zeppelin"
 
 load(file::File{RJLG_ZEPPELIN}) = Zeppelin(file.filename)

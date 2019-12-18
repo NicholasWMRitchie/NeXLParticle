@@ -10,7 +10,7 @@ function Gadfly.plot(
     yscale = 1.05,
     ytransform = identity,
     style = NeXLSpectrum.NeXLSpectrumStyle,
-    palette = NeXLSpectrum.NeXLPalette,
+    palette = NeXLCore.NeXLPalette,
 )
     plot(
         Spectrum[filter(s->!ismissing(s), map(r -> spectrum(zep, r, false),rows))...],

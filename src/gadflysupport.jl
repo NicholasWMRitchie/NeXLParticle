@@ -1,4 +1,4 @@
-using Gadfly
+using .Gadfly
 
 function Gadfly.plot(
     zep::Zeppelin,

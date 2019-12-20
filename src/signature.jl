@@ -146,7 +146,9 @@ function quantify(
         end
     end
     evalrows = intersect(eachparticle(zep),rows)
+    ignore = [strip...,special...]
     sigs = Array{Union{Missing, Dict{Element,AbstractFloat}}}(missing, length(evalrows))
+    counts = Array{Union{Missing,Float64}}(missing,length(evalrows))
     sigx = Signature(XPPCorrection, ReedFluorescence, SimpleKRatioOptimizer(1.3))
     Threads.@threads for row in evalrows
         unk = spectrum(zep, row, false)
@@ -156,6 +158,7 @@ function quantify(
             unk[:BeamEnergy], unk[:TakeOffAngle] = get(unk, :BeamEnergy, e0), get(unk, :TakeOffAngle, toa)
             # Fit, cull and then compute the particle signature...
             res = fit(FilteredUnknownW, unk, filt, filtrefs, true)
+            counts[row] = NeXLSpectrum.characteristiccounts(res, ignore)
             if writeResidual
                 filename = joinpath(dirname(zep.headerfile), "Residual", "00000$(row)"[end-4:end] * ".msa")
                 writeEMSA(filename, NeXLSpectrum.residual(res))
@@ -184,7 +187,8 @@ function quantify(
         FIRSTELM= ifavail1(felm,1), FIRSTPCT= ifavail2(fsig,1),
         SECONDELM = ifavail1(felm, 2), SECONDPCT = ifavail2(fsig,2), #
         THIRDELM = ifavail1(felm, 3),  THIRDPCT = ifavail2(fsig,3), #
-        FOURTHELM = ifavail1(felm, 4), FOURTHPCT = ifavail2(fsig,4)) #
+        FOURTHELM = ifavail1(felm, 4), FOURTHPCT = ifavail2(fsig,4),
+        COUNTS = counts) #
         # Return the uncertainties or not...
     cols = Pair{Symbol,AbstractVector{Float64}}[ ]
     for (i, elm) in enumerate(newcols)

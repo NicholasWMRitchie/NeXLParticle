@@ -6,7 +6,6 @@ Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 struct Zeppelin
     headerfile::String
     header::Dict{String,String}
-    columns::Vector{Vector{String}}
     elms::Array{Element}
     data::DataFrame
 
@@ -17,20 +16,18 @@ struct Zeppelin
     function Zeppelin( #
         headerfile::String,
         header::Dict{String,String},
-        columns::Vector{Vector{String}},
         data::DataFrame,
     )
         new(
             headerfile,
             header,
-            columns,
-            filter(col -> col in names(data), map(elm -> convert(Symbol,elm)), PeriodicTable.elements[1:94]),
+            filter(elm -> convert(Symbol,elm) in names(data), PeriodicTable.elements[1:94]),
             data,
         )
     end
 end
 
-Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.columns), copy(z.data))
+Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.data))
 
 function loadZep(headerfilename::String)
     remapcolumnnames = Dict{String,String}(
@@ -84,7 +81,7 @@ function loadZep(headerfilename::String)
         "COMP_HASH" => "COMPHASH",
         "PSEM_CLASS" => "CLASS",
     )
-    columnnames(cols) = map(cn -> get(remapcolumnnames, cn, cn), map(c -> c[1], cols))
+    columnnames(cols) = uppercase.(map(cn -> get(remapcolumnnames, cn, cn), map(c -> c[1], cols)))
     header, columns, hdr = Dict{String,String}(), [], true
     for line in readlines(headerfilename)
         if hdr
@@ -112,7 +109,7 @@ function loadZep(headerfilename::String)
     categorical!(pxz, :CLASSNAME, compress = true) # Convert class column to pxz
     cols = names(pxz)
     elms = filter(z -> convert(Symbol, z) in cols, PeriodicTable.elements[1:94])
-    return (header, columns, elms, pxz)
+    return (header, elms, pxz)
 end
 
 function Base.show(io::IO, zep::Zeppelin)
@@ -135,7 +132,13 @@ function header(zep::Zeppelin)
     return DataStructures.SortedDict(filter(kv -> kv[1] in kys, zep.header))
 end
 
-data(zep::Zeppelin) = zep.data
+data(zep::Zeppelin; sortCol=:None, rev=false) =
+    sortCol≠:None ? sort(zep.data, sortCol, rev=rev) : zep.data
+
+function data(zep::Zeppelin, rows; sortCol=:None, rev=false)
+    res = zep.data[intersect(rows, eachparticle(zep)), :]
+    return sortCol≠:None ? sort(res, sortCol, rev=rev) : res
+end
 
 eachparticle(zep::Zeppelin) = 1:size(zep.data, 1)
 
@@ -169,6 +172,8 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Miss
         try
             at[:Name] = "P[$part, $(zep.data[row, :CLASSNAME])]"
             at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in zep.elms))
+            at[:BeamEnergy] = beamenergy(zep, get(at, :BeamEnergy, 20.0e3))
+            at[:ProbeCurrent] = get(at, :ProbeCurrent, probecurrent(zep, 1.0))
         catch
             @info "Error adding properties to ASPEX TIFF file."
         end
@@ -190,6 +195,31 @@ function iszeppelin(filename::String)
     return res
 end
 
+function beamenergy(zep::Zeppelin, def=missing)
+    number(v) = parse(Float64, match(r"([+-]?[0-9]+[.]?[0-9]*)",v)[1])
+    val = def
+    try
+        v = get(zep.header, "ACCELERATING_VOLTAGE", missing)
+        val = !ismissing(v) ? number(v)*1.0e3 : def
+    catch
+        # Ignore it...
+    end
+    return val
+end
+
+function probecurrent(zep::Zeppelin, def=missing)
+    number(v) = parse(Float64, match(r"([+-]?[0-9]+[.]?[0-9]*)",v)[1])
+    val = def
+    try
+        v = get(zep.header, "PROBE_CURRENT", missing)
+        val = !ismissing(v) ? number(v) : def
+    catch
+        # Ignore it...
+    end
+    return val
+end
+
+
 """
     maxparticle(zep::Zeppelin, rows=1:100000000)
 
@@ -207,14 +237,114 @@ function maxparticle(zep::Zeppelin, rows=1:100000000)
     return Spectrum(sp.energy, mp, props)
 end
 
+"""
+    rowsMax(zep::Zeppelin, col::Symbol, n=20)
+
+Returns the row indices associated with the `n` maximum values in the `col` column.
+
+Examples:
+
+    # Plot ten largest by :DAVG
+    plot(zep, rowsMax(zep, :DAVG, 10))
+    # data from 100 most Iron-rich sorted by DAVG
+    data(zep, rowsMax(zep, :FE, 100), sortCol=:DAVG)
+"""
+function rowsMax(zep::Zeppelin, col::Symbol, n::Int=20)
+    d = collect(zip(1:250,zep.data[:,col]))
+    s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
+    return getindex.(s[intersect(eachparticle(zep),1:n)],1)
+end
+
+"""
+    rowsMin(zep::Zeppelin, col::Symbol, n=20)
+
+Returns the row indices associated with the `n` minimum values in the `col` column.
+
+Examples:
+
+    # Plot ten smallest by :DAVG
+    plot(zep, rowsMin(zep, :DAVG, 10))
+    # data from 100 most Iron-rich sorted by DAVG
+    data(zep, rowsMax(zep, :FE, 100), sortCol=:DAVG)
+"""
+function rowsMin(zep::Zeppelin, col::Symbol, n::Int=20)
+    d = collect(zip(eachparticle(zep),zep.data[:,col]))
+    s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=false)
+    return getindex.(s[intersect(eachparticle(zep),1:n)],1)
+end
+
+
+"""
+    rowsMax(zep::Zeppelin, col::Symbol, classname::AbstractString, n=20)
+
+Returns the row indices associated with the `n` maximum values in the `col` column that
+are also members of the specified `classname`.
+
+Example:
+
+    # Plot ten largest "Calcite" particles by :DAVG
+    plot(zep, rowsMax(zep, :DAVG, "Calcite", 10))
+"""
+function rowsMax(zep::Zeppelin, col::Symbol, classname::AbstractString, n::Int=20)
+    cr = filter(r->zep.data[r,:CLASSNAME]==classname, eachparticle(zep))
+    d = collect(zip(cr, zep.data[cr,col]))
+    s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
+    return getindex.(s[intersect(eachindex(cr),1:n)],1)
+end
+
+"""
+    rowsMin(zep::Zeppelin, col::Symbol, classname::AbstractString, n=20)
+
+Returns the row indices associated with the `n` minimum  values in the `col` column that
+are also members of the specified `classname`.
+
+Example:
+
+    # Plot ten smallest "Calcite" particles by :DAVG
+    plot(zep, rowsMin(zep, :DAVG, "Calcite", 10))
+"""
+function rowsMin(zep::Zeppelin, col::Symbol, classname::AbstractString, n::Int=20)
+    # Extract the rows for the class
+    cr = filter(r->zep.data[r,:CLASSNAME]==classname, eachparticle(zep))
+    # Combine (row, datum) for each row
+    d = collect(zip(cr, zep.data[cr,col]))
+    # Sort by datum
+    s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=false)
+    # Return up to the first n rows
+    return getindex.(s[intersect(eachindex(cr),1:n)],1)
+end
+
+"""
+    rowsClass(zep::Zeppelin, classname::AbstractString, shuffle=false)
+
+Returns the row indices associated with the specified `classname`.  If `shuffle` is true,
+the row indices are shuffled so that a randomized n can be plucked off to plot or other.
+
+Example:
+
+    # Plot a randomized selection of 10 "Calcite" particles
+    plot(zep, rowsClass(zep,"Calcite",true)[1:10], xmax=8.0e3)
+"""
+function rowsClass(zep::Zeppelin, classname::AbstractString, shuffle=false)
+    res = filter(i->zep.data[i,:CLASSNAME]==classname, eachparticle(zep))
+    return shuffle ? Random.shuffle(res) : res
+end
+
+const MORPH_COLS = [ :NUMBER, :XABS, :YABS, :DAVG, :DMIN, :DMAX, :DPERP, :PERIMETER, :AREA ]
+const CLASS_COLS = [ :CLASS, :CLASSNAME, :VERIFIEDCLASS, :IMPORTANCE ]
+const COMP_COLS = [ :FIRSTELM, :FIRSTPCT, :SECONDELM, :SECONDPCT, :THIRDELM,
+    :THIRDPCT, :FOURTHELM, :FOURTHPCT, :COUNTS, :CLASSNAME ]
+const ALL_ELMS = convert.(Symbol, elements[1:95])
+
+allelms(zep::Zeppelin) = intersect(ALL_ELMS, names(zep.data))
+
+const ALL_COMPOSITIONAL_COLUMNS = ( :FIRST, :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM, :FIRSTELM, :SECONDELM, :THIRDELM,
+   :FOURTHELM, :COUNTS1, :COUNTS2, :COUNTS3, :COUNTS4, :FIRSTPCT, :SECONDPCT, :THIRDPCT, :FOURTHPCT, :TYPE4ET, :COUNTS,
+   :FITQUAL, :COMPHASH )
+const ALL_CLASS_COLS = ( :CLASS, :CLASSNAME, :VERIFIEDCLASS, :IMPORTANCE )
+
 RJLG_ZEPPELIN=format"RJLG Zeppelin"
 
 load(file::File{RJLG_ZEPPELIN}) = Zeppelin(file.filename)
 
 FileIO.add_format(RJLG_ZEPPELIN, iszeppelin, [ ".hdz" ])
-
-const COMPOSITIONAL_COLUMNS = ( :FIRST, :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM, :FIRSTELM, :SECONDELM, :THIRDELM,
-   :FOURTHELM, :COUNTS1, :COUNTS2, :COUNTS3, :COUNTS4, :FIRSTPCT, :SECONDPCT, :THIRDPCT, :FOURTHPCT, :FIRSTPCT,
-:SECONDPCT, :THIRDPCT, :FOURTHPCT, :TYPE4ET, :FITQUAL, :COMPHASH )
-
-const CLASS_COLUMNS =  ( :VERIFIEDCLASS, :CLASS, :CLASSNAME )

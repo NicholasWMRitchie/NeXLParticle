@@ -1,4 +1,5 @@
 using .Gadfly
+using Random
 
 function Gadfly.plot(
     zep::Zeppelin,

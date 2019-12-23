@@ -1,5 +1,6 @@
-
-using FileIO
+using CSV
+using DataStructures
+using Random
 
 Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 
@@ -9,8 +10,8 @@ struct Zeppelin
     elms::Array{Element}
     data::DataFrame
 
-    function Zeppelin(headerfilename::String)
-        new(headerfilename, loadZep(headerfilename)...)
+    function Zeppelin( hdzfilename::String)
+        new( hdzfilename, loadZep( hdzfilename)...)
     end
 
     function Zeppelin( #
@@ -29,7 +30,7 @@ end
 
 Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.data))
 
-function loadZep(headerfilename::String)
+function loadZep( hdzfilename::String)
     remapcolumnnames = Dict{String,String}(
         "PART#" => "NUMBER",
         "PARTNUM" => "NUMBER",
@@ -75,7 +76,7 @@ function loadZep(headerfilename::String)
         "TYPE(4ET#)" => "TYPE4ET",
         "VOID_AREA" => "VOIDAREA",
         "RMS_VIDEO" => "RMSVIDEO",
-        "FIT_QUAL" => "FIT_QUAL",
+        "FIT_QUAL" => "FITQUAL",
         "VERIFIED_CLASS" => "VERIFIEDCLASS",
         "EDGE_ROUGHNESS" => "EDGEROUGHNESS",
         "COMP_HASH" => "COMPHASH",
@@ -83,24 +84,26 @@ function loadZep(headerfilename::String)
     )
     columnnames(cols) = uppercase.(map(cn -> get(remapcolumnnames, cn, cn), map(c -> c[1], cols)))
     header, columns, hdr = Dict{String,String}(), [], true
-    for line in readlines(headerfilename)
+    for line in readlines( hdzfilename)
         if hdr
             p = findfirst(c -> c == '=', line)
             if !isnothing(p)
                 (k, v) = line[1:p-1], line[p+1:end]
                 header[k] = v
+                hdr = !isequal(uppercase(k), "PARTICLE_PARAMETERS")
             end
-            hdr = !isequal(uppercase(k), "PARTICLE_PARAMETERS")
         else
             push!(columns, string.(strip.(split(line, "\t"))))
         end
     end
+    foreach(hi -> if haskey(header, hi) delete!(header, hi) end, ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ))
+    # Remove and regenerate "ELEMXX" data
+    foreach(f->if startswith(f,"ELEM") delete!(header,f) end, keys(header))
     pxz = CSV.File(
-        replace(headerfilename, r".[h|H][d|D][z|Z]$" => ".pxz"),
+        replace( hdzfilename, r".[h|H][d|D][z|Z]$" => ".pxz"),
         header = columnnames(columns),
         normalizenames = true,
     ) |> DataFrame
-
     sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
     sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
     clsnames = map(c -> header[c], sortedkeys)
@@ -149,6 +152,21 @@ Returns the Spectrum (with images) associated with the particle at row
 """
 Base.getindex(zep::Zeppelin, row::Int) = spectrum(zep, row, true)
 
+
+function spectrumfilename(zep::Zeppelin, row::Int)
+    mag = hasproperty(zep.data, :MAG) ? convert(Int,trunc(zep.data[row, :MAG])) : 0
+    tmp = "$(zep.data[row, :NUMBER])"
+    for n in 6:-1:4
+        fn = joinpath(dirname(zep.headerfile), "MAG$(mag)", repeat('0',max(0,n-length(tmp)))*tmp*".tif")
+        if isfile(fn)
+            return fn
+        end
+    end
+    return joinpath(dirname(zep.headerfile), "MAG$(mag)", repeat('0',max(0,5-length(tmp)))*tmp*".tif")
+end
+
+
+
 """
     spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum, missing}
 
@@ -156,13 +174,7 @@ Returns the Spectrum (with images) associated with the particle at row.  If with
 is true, the associated image or images are read.
 """
 function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Missing}
-    mag = hasproperty(zep.data, :MAG) ? convert(Int,trunc(zep.data[row, :MAG])) : 0
-    part = zep.data[row, :NUMBER]
-    file = joinpath(dirname(zep.headerfile), "MAG$(mag)", "00000$(part)"[end-4:end] * ".tif")
-    if !isfile(file)
-        file = joinpath(dirname(zep.headerfile), "MAG$(mag)", "00000$(part)"[end-3:end] * ".tif")
-    end
-    at = missing
+    file, at = spectrumfilename(zep, row), missing
     if isfile(file)
         try
             at = readAspexTIFF(file, withImgs = withImgs)
@@ -170,10 +182,10 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Miss
             @info "$(file) does not appear to be a valid ASPEX spectrum TIFF."
         end
         try
-            at[:Name] = "P[$part, $(zep.data[row, :CLASSNAME])]"
-            at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in zep.elms))
             at[:BeamEnergy] = beamenergy(zep, get(at, :BeamEnergy, 20.0e3))
             at[:ProbeCurrent] = get(at, :ProbeCurrent, probecurrent(zep, 1.0))
+            at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in zep.elms))
+            at[:Name] = "P[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASSNAME])]"
         catch
             @info "Error adding properties to ASPEX TIFF file."
         end
@@ -193,6 +205,73 @@ function iszeppelin(filename::String)
         end
     end
     return res
+end
+
+function writeZep(zep::Zeppelin,  hdzfilename::String)
+        remapcolumnnames = Dict{String,String}(
+            :NUMBER => "PART# 1 INT16",
+            :FIELD  => "FIELD# 1 INT16",
+            :MAGFIELD  => "MAGFIELD# 1 INT16",
+            :XABS  => "X_ABS mm FLOAT",
+            :YABS  => "Y_ABS mm FLOAT",
+            :XDAC  => "X_DAC 1 INT16",
+            :YDAC  => "Y_DAC 1 INT16",
+            :XFERET  => "X_FERET µm FLOAT",
+            :YFERET  => "Y_FERET µm FLOAT",
+            :DAVG  => "DAVE µm FLOAT",
+            :DMAX  => "DMAX µm FLOAT",
+            :DMIN  => "DMIN µm FLOAT",
+            :DPERP  => "DPERP µm FLOAT",
+            :ASPECT  =>"ASPECT 1 FLOAT",
+            :AREA  => "AREA µm² FLOAT",
+            :PERIMETER  => "PERIMETER µm FLOAT",
+            :ORIENTATION  => "ORIENTATION deg FLOAT",
+            :LIVETIME  => "LIVE_TIME s FLOAT",
+            :FITQUAL  => "FIT_QUAL 1 FLOAT",
+            :MAG  => "MAG 1 INT16",
+            :VIDEO  => "VIDEO 1 INT16",
+            :IMPORTANCE  => "IMPORTANCE 1 INT16",
+            :COUNTS  => "COUNTS 1 FLOAT",
+            :MAGINDEX  => "MAG_INDEX 1 INT16",
+            :FIRSTELM  => "FIRST_ELEM 1 INT16",
+            :SECONDELM  => "SECOND_ELEM 1 INT16",
+            :THIRDELM  => "THIRD_ELEM 1 INT16",
+            :FOURTHELM  => "FOURTH_ELEM 1 INT16",
+            :COUNTS1  => "FIRST_CONC counts FLOAT",
+            :COUNTS2  => "SECOND_CONC counts FLOAT",
+            :COUNTS3  => "THIRD_CONC counts FLOAT",
+            :COUNTS4  => "FOURTH_CONC counts FLOAT",
+            :FIRSTPCT  => "FIRST_PCT % FLOAT",
+            :SECONDPCT  => "SECOND_PCT % FLOAT",
+            :THIRDPCT  => "THIRD_PCT % FLOAT",
+            :FOURTHPCT  => "FOURTH_PCT % FLOAT",
+            :TYPE4ET  => "TYPE(4ET#) 1 LONG",
+            :VOIDAREA  => "VOID_AREA µm² FLOAT",
+            :RMSVIDEO  => "RMS_VIDEO 1 INT16",
+            :FITQUAL  => "FIT_QUAL 1 FLOAT",
+            :VERIFIEDCLASS  => "VERIFIED_CLASS 1 INT16",
+            :EDGEROUGHNESS  => "EDGE_ROUGHNESS 1 FLOAT",
+            :COMPHASH  => "COMP_HASH 1 LONG",
+            :CLASS  => "PSEM_CLASS 1 INT16",
+        )
+        merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(elm.symbol) %(k) FLOAT" for elm in elms))
+        merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "$(elm.symbol) %(k) FLOAT"  for elm in elms))
+        headeritems = copy(zep.header)
+        # add back the element tags
+        foreach((i,elm) -> headeritems["ELEM%i"] = "$(elm.symbol) $(z(elm)) 1", enumerate(zep.elms))
+        header["ELEMENTS"] = "$(length(zep.elms))"
+        header["TOTAL_PARTICLES"] = "$(size(zep.data,1))"
+        # write out the header
+        colnames = filter(n-> n != :CLASSNAME, names(zep.data))
+        IOStream( hdzfilename,"w") do ios
+            println(ios, "PARAMETERS=$(length(header)+size(zep.data,2)+3)")
+            println(ios, "HEADER_FMT=ZEPP_1")
+            foreach(hk->println(ios,"$(hk)=$(headeritems[hk])"), sort(keys(headeritems)))
+            println(ios, "PARTICLE_PARAMETERS=$(size(zep.data,2))")
+            foreach(col->println(ios,remapcolumnnames[col]),colnames)
+        end
+        pxzfilename = replace( hdzfilename,r".[h|H][d|D][z|Z]",".pxz")
+        CSV.write(pxzfilename, zep.data[:, colnames], delim="\t", missingstring="-", writeheader=false)
 end
 
 function beamenergy(zep::Zeppelin, def=missing)
@@ -221,21 +300,38 @@ end
 
 
 """
-    maxparticle(zep::Zeppelin, rows=1:100000000)
+    maxparticle(zep::Zeppelin, maxrows=100000000)
 
-Computes the maxparticle spectrum from the specified rows in a Zeppelin dataset.
+Computes the maxparticle spectrum from up to `maxrows` spectra.  If the number of particles in `zep` is
+larger than `maxrows` then a randomized subset is chosen.
 """
-function maxparticle(zep::Zeppelin, rows=1:100000000)
-    rows = intersect(rows,eachparticle(zep))
+function maxparticle(zep::Zeppelin, maxrows=100000000)
+    if maxrows<size(zep.data,1)
+        rows = Random.shuffle(collect(eachparticle(zep)))[1:maxrows]
+    else
+        rows = eachparticle(zep)
+    end
     maxi(a, b) = collect(max(a[i],b[i]) for i in eachindex(a))
-    mp = reduce(maxi, filter(s->!ismissing(s),(r->spectrum(zep, r, false)).(rows)))
+    mp, firstspec = missing, missing
+    for r in rows
+        try
+            spec = spectrum(zep, r, false)
+            if !ismissing(spec)
+                firstspec = ismissing(firstspec) ? spec : firstspec
+                cx = counts(spec, Float64)
+                mp = ismissing(mp) ? cx : maxi(mp, cx)
+            end
+        catch err
+            @info "Failed $(err)"
+            # Ignore it...
+        end
+    end
     # Now copy it out as a spectrum
-    i = findfirst(s->!ismissing(s),(r->spectrum(zep, r, false)).(rows))
-    sp = spectrum(zep, i, false)
-    props = copy(sp.properties)
-    props[:Name] = "MaxParticle[$(basename(zep.headerfile))]"
-    return Spectrum(sp.energy, mp, props)
+    props = copy(firstspec.properties)
+    props[:Name] = "MaxParticle[$(basename(zep.headerfile)[1:end-4])]"
+    return Spectrum(firstspec.energy, mp, props)
 end
+
 
 """
     rowsMax(zep::Zeppelin, col::Symbol, n=20)
@@ -346,5 +442,6 @@ const ALL_CLASS_COLS = ( :CLASS, :CLASSNAME, :VERIFIEDCLASS, :IMPORTANCE )
 RJLG_ZEPPELIN=format"RJLG Zeppelin"
 
 load(file::File{RJLG_ZEPPELIN}) = Zeppelin(file.filename)
+save(f::File{RJLG_ZEPPELIN}, zep) = writeZep(zep, file.filename)
 
 FileIO.add_format(RJLG_ZEPPELIN, iszeppelin, [ ".hdz" ])

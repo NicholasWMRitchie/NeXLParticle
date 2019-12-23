@@ -219,7 +219,6 @@ function quantify(zep::Zeppelin,
     # Replace outdated header items
     header = copy(zep.header)
     headerfile =  joinpath(dirname(zep.headerfile),"generated.hdz") # So spectra and other path related items continue to work
-    foreach(f->if startswith(f,"ELEM") delete!(header,f) end, keys(header))
     delete!(header, "MAX_PARTICLE")
     delete!(header, "MAX_RESIDUAL")
     # Add/replace header items
@@ -229,14 +228,6 @@ function quantify(zep::Zeppelin,
             break
         end
     end
-    elmCx = 0
-    for elm in sort([keys(refs)...])
-        if !(elm in strip)
-            elmCx+=1
-            header["ELEM[$elmCx]"] = "$(elm.symbol) $(z(elm)) 1"
-        end
-    end
-    header["ELEMENTS"] = "$(elmCx)"
     header["DATAFILES"] = replace(headerfile,r".[h|H][d|D][z|Z]$"=>".*")
     header["VEC_FILE"] = "NeXLParticle"
     return Zeppelin(headerfile, header, data)

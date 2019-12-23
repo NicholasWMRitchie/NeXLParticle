@@ -1,12 +1,12 @@
 module NeXLParticle
 
-using CSV
 using DataFrames
-using PeriodicTable
-using DataStructures
+using FileIO
+
 using Reexport
 using Requires
 
+@reexport using PeriodicTable
 @reexport using NeXLCore
 @reexport using NeXLSpectrum
 
@@ -22,6 +22,8 @@ export eachparticle # The range of partice row indices
 export rowsMax, rowsClass
 export MORPH_COLS, COMP_COLS, CLASS_COLS
 export allelms
+export beamenergy, probecurrent
+export maxparticle
 
 include("signature.jl")
 export signature # Compures the particle signature

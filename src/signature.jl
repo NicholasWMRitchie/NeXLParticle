@@ -13,7 +13,7 @@ function askratios(ffr::FilterFitResult)::Vector{KRatio}
                     ffr.label.spec.properties,
                     lbl.spec.properties,
                     lbl.spec[:Composition],
-                    NeXLUncertainties.uncertainvalue(lbl, ffr.kratios),
+                    ffr.kratios[lbl],
                 ),
             )
         end

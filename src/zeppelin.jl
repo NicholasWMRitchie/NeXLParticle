@@ -213,69 +213,73 @@ function iszeppelin(filename::String)
 end
 
 function writeZep(zep::Zeppelin,  hdzfilename::String)
-        remapcolumnnames = Dict{String,String}(
-            :NUMBER => "PART# 1 INT16",
-            :FIELD  => "FIELD# 1 INT16",
-            :MAGFIELD  => "MAGFIELD# 1 INT16",
-            :XABS  => "X_ABS mm FLOAT",
-            :YABS  => "Y_ABS mm FLOAT",
-            :XDAC  => "X_DAC 1 INT16",
-            :YDAC  => "Y_DAC 1 INT16",
-            :XFERET  => "X_FERET µm FLOAT",
-            :YFERET  => "Y_FERET µm FLOAT",
-            :DAVG  => "DAVE µm FLOAT",
-            :DMAX  => "DMAX µm FLOAT",
-            :DMIN  => "DMIN µm FLOAT",
-            :DPERP  => "DPERP µm FLOAT",
-            :ASPECT  =>"ASPECT 1 FLOAT",
-            :AREA  => "AREA µm² FLOAT",
-            :PERIMETER  => "PERIMETER µm FLOAT",
-            :ORIENTATION  => "ORIENTATION deg FLOAT",
-            :LIVETIME  => "LIVE_TIME s FLOAT",
-            :FITQUAL  => "FIT_QUAL 1 FLOAT",
-            :MAG  => "MAG 1 INT16",
-            :VIDEO  => "VIDEO 1 INT16",
-            :IMPORTANCE  => "IMPORTANCE 1 INT16",
-            :COUNTS  => "COUNTS 1 FLOAT",
-            :MAGINDEX  => "MAG_INDEX 1 INT16",
-            :FIRSTELM  => "FIRST_ELEM 1 INT16",
-            :SECONDELM  => "SECOND_ELEM 1 INT16",
-            :THIRDELM  => "THIRD_ELEM 1 INT16",
-            :FOURTHELM  => "FOURTH_ELEM 1 INT16",
-            :COUNTS1  => "FIRST_CONC counts FLOAT",
-            :COUNTS2  => "SECOND_CONC counts FLOAT",
-            :COUNTS3  => "THIRD_CONC counts FLOAT",
-            :COUNTS4  => "FOURTH_CONC counts FLOAT",
-            :FIRSTPCT  => "FIRST_PCT % FLOAT",
-            :SECONDPCT  => "SECOND_PCT % FLOAT",
-            :THIRDPCT  => "THIRD_PCT % FLOAT",
-            :FOURTHPCT  => "FOURTH_PCT % FLOAT",
-            :TYPE4ET  => "TYPE(4ET#) 1 LONG",
-            :VOIDAREA  => "VOID_AREA µm² FLOAT",
-            :RMSVIDEO  => "RMS_VIDEO 1 INT16",
-            :FITQUAL  => "FIT_QUAL 1 FLOAT",
-            :VERIFIEDCLASS  => "VERIFIED_CLASS 1 INT16",
-            :EDGEROUGHNESS  => "EDGE_ROUGHNESS 1 FLOAT",
-            :COMPHASH  => "COMP_HASH 1 LONG",
-            :CLASS  => "PSEM_CLASS 1 INT16",
+        remapcolumnnames = Dict{Symbol,String}(
+            :NUMBER => "PART#\t1\tINT16",
+            :FIELD  => "FIELD#\t1\tINT16",
+            :MAGFIELD  => "MAGFIELD#\t1\tINT16",
+            :XABS  => "X_ABS\tmm\tFLOAT",
+            :YABS  => "Y_ABS\tmm\tFLOAT",
+            :XDAC  => "X_DAC\t1\tINT16",
+            :YDAC  => "Y_DAC\t1\tINT16",
+            :XFERET  => "X_FERET\tµm\tFLOAT",
+            :YFERET  => "Y_FERET\tµm\tFLOAT",
+            :DAVG  => "DAVE\tµm\tFLOAT",
+            :DMAX  => "DMAX\tµm\tFLOAT",
+            :DMIN  => "DMIN\tµm\tFLOAT",
+            :DPERP  => "DPERP\tµm\tFLOAT",
+            :ASPECT  =>"ASPECT\t1\tFLOAT",
+            :AREA  => "AREA\tµm²\tFLOAT",
+            :PERIMETER  => "PERIMETER\tµm\tFLOAT",
+            :ORIENTATION  => "ORIENTATION\tdeg\tFLOAT",
+            :LIVETIME  => "LIVE_TIME\ts\tFLOAT",
+            :FITQUAL  => "FIT_QUAL\t1\tFLOAT",
+            :MAG  => "MAG\t1\tINT16",
+            :VIDEO  => "VIDEO\t1\tINT16",
+            :IMPORTANCE  => "IMPORTANCE\t1\tINT16",
+            :COUNTS  => "COUNTS\t1\tFLOAT",
+            :MAGINDEX  => "MAG_INDEX\t1\tINT16",
+            :FIRSTELM  => "FIRST_ELEM\t1\tINT16",
+            :SECONDELM  => "SECOND_ELEM\t1\tINT16",
+            :THIRDELM  => "THIRD_ELEM\t1\tINT16",
+            :FOURTHELM  => "FOURTH_ELEM\t1\tINT16",
+            :COUNTS1  => "FIRST_CONC\tcounts\tFLOAT",
+            :COUNTS2  => "SECOND_CONC\tcounts\tFLOAT",
+            :COUNTS3  => "THIRD_CONC\tcounts\tFLOAT",
+            :COUNTS4  => "FOURTH_CONC\tcounts\tFLOAT",
+            :FIRSTPCT  => "FIRST_PCT\t%\tFLOAT",
+            :SECONDPCT  => "SECOND_PCT\t%\tFLOAT",
+            :THIRDPCT  => "THIRD_PCT\t%\tFLOAT",
+            :FOURTHPCT  => "FOURTH_PCT\t%\tFLOAT",
+            :TYPE4ET  => "TYPE(4ET#)\t1\tLONG",
+            :VOIDAREA  => "VOID_AREA\tµm²\tFLOAT",
+            :RMSVIDEO  => "RMS_VIDEO\t1\tINT16",
+            :FITQUAL  => "FIT_QUAL\t1\tFLOAT",
+            :VERIFIEDCLASS  => "VERIFIED_CLASS\t1\tINT16",
+            :EDGEROUGHNESS  => "EDGE_ROUGHNESS\t1\tFLOAT",
+            :COMPHASH  => "COMP_HASH\t1\tLONG",
+            :CLASS  => "PSEM_CLASS\t1\tINT16",
+            :TYPE_4ET_ => "Type[4ET]\t1\tLONG",
         )
-        merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(elm.symbol) %(k) FLOAT" for elm in elms))
-        merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "$(elm.symbol) %(k) FLOAT"  for elm in elms))
+        merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(elm.symbol) %(k) FLOAT" for elm in zep.elms))
+        merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "U[$(elm.symbol)] %(k) FLOAT" for elm in zep.elms))
+        merge!(remapcolumnnames, Dict( Symbol("U[$(elm.symbol)]")  => "U[$(elm.symbol)] %(k) FLOAT" for elm in zep.elms))
         headeritems = copy(zep.header)
         # add back the element tags
-        foreach((i,elm) -> headeritems["ELEM%i"] = "$(elm.symbol) $(z(elm)) 1", enumerate(zep.elms))
-        header["ELEMENTS"] = "$(length(zep.elms))"
-        header["TOTAL_PARTICLES"] = "$(size(zep.data,1))"
+        for (i,elm) in enumerate(zep.elms)
+            headeritems["ELEM$i"] = "$(elm.symbol) $(z(elm)) 1"
+        end
+        headeritems["ELEMENTS"] = "$(length(zep.elms))"
+        headeritems["TOTAL_PARTICLES"] = "$(size(zep.data,1))"
         # write out the header
         colnames = filter(n-> n != :CLASSNAME, names(zep.data))
-        IOStream( hdzfilename,"w") do ios
-            println(ios, "PARAMETERS=$(length(header)+size(zep.data,2)+3)")
+        open(hdzfilename,"w") do ios
+            println(ios, "PARAMETERS=$(length(headeritems)+size(zep.data,2)+2)")
             println(ios, "HEADER_FMT=ZEPP_1")
-            foreach(hk->println(ios,"$(hk)=$(headeritems[hk])"), sort(keys(headeritems)))
+            foreach(hk->println(ios,"$(hk)=$(headeritems[hk])"), sort(collect(keys(headeritems))))
             println(ios, "PARTICLE_PARAMETERS=$(size(zep.data,2))")
             foreach(col->println(ios,remapcolumnnames[col]),colnames)
         end
-        pxzfilename = replace( hdzfilename,r".[h|H][d|D][z|Z]",".pxz")
+        pxzfilename = replace( hdzfilename, r".[h|H][d|D][z|Z]"=>".pxz")
         CSV.write(pxzfilename, zep.data[:, colnames], delim="\t", missingstring="-", writeheader=false)
 end
 

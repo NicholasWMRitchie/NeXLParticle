@@ -152,17 +152,23 @@ Returns the Spectrum (with images) associated with the particle at row
 """
 Base.getindex(zep::Zeppelin, row::Int) = spectrum(zep, row, true)
 
+"""
+    spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ext::AbstractString=".tif")
 
-function spectrumfilename(zep::Zeppelin, row::Int)
+Returns the name of the spectrum/image file for the particle in the specified row.
+"""
+function spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ext::AbstractString=".tif")
     mag = hasproperty(zep.data, :MAG) ? convert(Int,trunc(zep.data[row, :MAG])) : 0
     tmp = "$(zep.data[row, :NUMBER])"
+    # First check if a spectrum file exists
     for n in 6:-1:4
-        fn = joinpath(dirname(zep.headerfile), "MAG$(mag)", repeat('0',max(0,n-length(tmp)))*tmp*".tif")
+        fn = joinpath(dirname(zep.headerfile), "$(dir)$(mag)", repeat('0',max(0,n-length(tmp)))*tmp*ext)
         if isfile(fn)
             return fn
         end
     end
-    return joinpath(dirname(zep.headerfile), "MAG$(mag)", repeat('0',max(0,5-length(tmp)))*tmp*".tif")
+    # Default case
+    return joinpath(dirname(zep.headerfile), "$(dir)$(mag)", repeat('0',max(0,5-length(tmp)))*tmp*ext)
 end
 
 
@@ -174,11 +180,12 @@ Returns the Spectrum (with images) associated with the particle at row.  If with
 is true, the associated image or images are read.
 """
 function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Missing}
-    file, at = spectrumfilename(zep, row), missing
+    file, at = spectrumfilename(zep, row, "MAG", ".tif"), missing
     if isfile(file)
         try
             at = readAspexTIFF(file, withImgs = withImgs)
-        catch
+        catch err
+            showerror(stderr, err)
             @info "$(file) does not appear to be a valid ASPEX spectrum TIFF."
         end
         try
@@ -189,8 +196,6 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Miss
         catch
             @info "Error adding properties to ASPEX TIFF file."
         end
-    else
-        @info "Can't find $file."
     end
     return at
 end
@@ -298,24 +303,71 @@ function probecurrent(zep::Zeppelin, def=missing)
     return val
 end
 
+"""
+    randomsubset(zep::Zeppelin, maxRows::Int)
+
+Creates an ordered random subselection of `maxRows` without replacement of the rows in the `zep` dataset.  If maxRows
+is larger than the number of rows in `zep` then a UnitRange with all rows is returned.
+"""
+randomsubset(zep::Zeppelin, maxRows::Int) =
+    return maxRows<size(zep.data,1) ? #
+        sort(Random.shuffle(collect(eachparticle(zep)))[1:maxRows]) :
+        eachparticle(zep)
 
 """
-    maxparticle(zep::Zeppelin, maxrows=100000000)
+    residual(zep::Zeppelin, row::Int, withImgs=false)::Union{Spectrum,Missing}
 
-Computes the maxparticle spectrum from up to `maxrows` spectra.  If the number of particles in `zep` is
-larger than `maxrows` then a randomized subset is chosen.
+Returns the residual spectrum for the particle at `row` or missing if it does not exist. Never returns images.
 """
-function maxparticle(zep::Zeppelin, maxrows=100000000)
-    if maxrows<size(zep.data,1)
-        rows = Random.shuffle(collect(eachparticle(zep)))[1:maxrows]
-    else
-        rows = eachparticle(zep)
+function residual(zep::Zeppelin, row::Int, withImgs=false)::Union{Spectrum,Missing}
+    res = missing
+    try
+        filename = spectrumfilename(zep, row, "Residual", ".msa")
+        res = isfile(filename) ? readEMSA(filename) : missing
+    catch
+        # Ignore errors, just return missing
     end
+    return res
+end
+
+
+"""
+    maxresidual(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}=1:1000000)
+
+Computes the max-residual spectrum from the specified particles by `rows`.  The residual must have been
+previously computed in quantify(zep, ....)
+"""
+function maxresidual(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}})
+    res = maxspectrum(zep, rows, residual)
+    res[:Name] = "MaxResidual"
+    return res
+end
+
+
+"""
+    maxparticle(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}=1:1000000)
+
+Computes the maxparticle spectrum from the specified particles by `rows`.
+"""
+function maxparticle(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}})
+    res = maxspectrum(zep, rows, spectrum)
+    res[:Name] = "MaxParticle"
+    return res
+end
+
+
+"""
+    maxspectrum(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}, specfunc::Function)
+
+Computes the maxparticle spectrum from the specified particles by `rows`.
+`specfunc(zep::Zeppelin, row::Int, withImgs::Boolean)`
+"""
+function NeXLSpectrum.maxspectrum(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}, specfunc::Function)
     maxi(a, b) = collect(max(a[i],b[i]) for i in eachindex(a))
     mp, firstspec = missing, missing
     for r in rows
         try
-            spec = spectrum(zep, r, false)
+            spec = specfunc(zep, r, false)
             if !ismissing(spec)
                 firstspec = ismissing(firstspec) ? spec : firstspec
                 cx = counts(spec, Float64)
@@ -328,7 +380,7 @@ function maxparticle(zep::Zeppelin, maxrows=100000000)
     end
     # Now copy it out as a spectrum
     props = copy(firstspec.properties)
-    props[:Name] = "MaxParticle[$(basename(zep.headerfile)[1:end-4])]"
+    props[:Name] = "MaxParticle"
     return Spectrum(firstspec.energy, mp, props)
 end
 

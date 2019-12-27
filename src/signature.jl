@@ -101,54 +101,60 @@ function cull(cr::NSigmaCulling, kr::KRatio)
     return k > cr.nsigma * s ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
 end
 
+struct NoCulling <: CullingRule end
+
+function cull(cr::NoCulling, kr::KRatio)
+    k, s = NeXLUncertainties.value(kr.kratio), NeXLUncertainties.σ(kr.kratio)
+    return k > 0 ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
+end
+
+
 function _quant(
     zep::Zeppelin,
     det::Detector,
     refs::Dict{Element,Spectrum},
-    rows::Union{Vector{Int},UnitRange{Int}}=1:1000000;
-    strip = Set{Element}( (n"C", ) ), # Elements to fit but not include in the result table.
-    special = Set{Element}( ( n"O", ) ), # Element for special treatment in signature
-    cullRule::CullingRule = NSigmaCulling(3.0),
-    writeResidual::Bool = true,
-    withUncertainty::Bool = true
+    rows::Union{AbstractVector{Int},UnitRange{Int}},
+    strip::Set{Element}, # Elements to fit but not include in the result table.
+    special::Set{Element}, # Element for special treatment in signature
+    cullRule::CullingRule,
+    writeResidual::Bool,
+    withUncertainty::Bool
 )
     sortedbysig(newcols, row) =
          sort(collect(zip(newcols, row)),lt=(i1,i2)->!isless(i1[1]==n"O" ? 0.0 : i1[2],i2[1]==n"O" ? 0.0 : i2[2]))
-    rows = ismissing(rows) ? eachparticle(zep) : rows
     # Build the filtered references
     filt = buildfilter(NeXLSpectrum.GaussianFilter, det)
     filtrefs = FilteredReference[]
-    e0, toa = NaN64, NaN64
-    # Not really worth threading
-    for elm in keys(refs)
-        lines = ktransitions
-        if elm > n"Ca"
-            lines = union(ktransitions, ltransitions)
-        elseif elm > n"Ba"
+    e0, toa = beamenergy(zep), NaN64
+    # Create filtered references.  Not worth threading.
+    for (elm,ref) in refs
+        if elm > n"Ba"
             lines = union(ltransitions, mtransitions)
+        elseif elm > n"Ca"
+            lines = union(ktransitions, ltransitions)
+        else
+            lines = ktransitions
         end
-        cfs = NeXLSpectrum.charFeature(elm, Tuple(lines), maxE = 0.9 * refs[elm][:BeamEnergy])
-        fr = filter(refs[elm], det, cfs, filt, 1.0 / dose(refs[elm]))
+        cfs = NeXLSpectrum.charFeature(elm, Tuple(lines), maxE = 0.9 * e0)
+        fr = filter(ref, det, cfs, filt, 1.0 / dose(ref))
         append!(filtrefs, fr)
-        if isnan(e0)
-            e0, toa = refs[elm][:BeamEnergy], refs[elm][:TakeOffAngle]
-        end
+        toa = isnan(toa) ? ref[:TakeOffAngle] : toa
     end
     # Create a list of columns (by element)
     newcols = sort(collect(filter(elm -> !(elm in strip), keys(refs))))
-    quant = Array{Union{UncertainValue,Missing}}(missing, size(zep.data, 1), length(newcols))
+    quant = Array{Union{UncertainValue,Missing}}(missing, length(rows), length(newcols))
     # quantify and tabulate each particle
     if writeResidual
-        newdir = joinpath(dirname(zep.headerfile), "ResidualX")
+        newdir = joinpath(dirname(zep.headerfile), "Residual")
         if !isdir(newdir)
             mkdir(newdir)
         end
     end
-    evalrows = intersect(eachparticle(zep),rows)
     ignore = union(strip,special)
-    krvs = Array{Union{Missing, Vector{KRatio}}}(missing, length(evalrows))
-    counts = Array{Union{Missing,Float64}}(missing,length(evalrows))
-    Threads.@threads for row in evalrows
+    krvs = Array{Union{Missing, Vector{KRatio}}}(missing, length(rows))
+    counts = Array{Union{Missing,Float64}}(missing, length(rows))
+    Threads.@threads for ir in eachindex(rows)
+        row = rows[ir]
         unk = spectrum(zep, row, false)
         if !ismissing(unk)
             # Particle spectra are often missing critical data items...
@@ -156,29 +162,32 @@ function _quant(
             unk[:BeamEnergy], unk[:TakeOffAngle] = get(unk, :BeamEnergy, e0), get(unk, :TakeOffAngle, toa)
             # Fit, cull and then compute the particle signature...
             res = fit(FilteredUnknownW, unk, filt, filtrefs, true)
-            counts[row] = NeXLSpectrum.characteristiccounts(res, ignore)
+            counts[ir] = NeXLSpectrum.characteristiccounts(res, ignore)
             if writeResidual
-                filename = joinpath(dirname(zep.headerfile), "Residual", "00000$(row)"[end-4:end] * ".msa")
+                filename = spectrumfilename(zep, row, "Residual", ".msa")
+                if !isdir(dirname(filename))
+                    mkpath(dirname(filename))
+                end
                 writeEMSA(filename, NeXLSpectrum.residual(res))
             end
             culled = map(kr -> cull(cullRule, kr), askratios(res))
-            krvs[row] = filter(kr -> kr.element in newcols, culled)
+            krvs[ir] = filter(kr -> kr.element in newcols, culled)
         end
     end
     nfirst=min(4, length(newcols)-length(special))
-    felm = Array{Union{Element,Missing}}(missing, size(zep.data, 1), 4)
-    fsig = Array{Union{UncertainValue,Missing}}(missing, size(zep.data, 1), 4)
+    felm = Array{Union{Element,Missing}}(missing, length(rows), 4)
+    fsig = Array{Union{UncertainValue,Missing}}(missing, length(rows), 4)
     sigx = Signature(XPPCorrection, ReedFluorescence, SimpleKRatioOptimizer(1.3))
-    for row in evalrows
-        krv = krvs[row]
+    for ir in eachindex(rows)
+        krv = krvs[ir]
         if !ismissing(krv)
             sig = signature(sigx, krv, special) # Not thread safe...
-            quant[row, :] = map(elm -> 100.0 * sig[elm], newcols)
+            quant[ir, :] = map(elm -> 100.0 * sig[elm], newcols)
             s2 = copy(sig)
-            foreach(i->delete!(s2,i), special) # Special can't be a FIRSTELM, ...
+            foreach(j->delete!(s2,j), special) # Special can't be a FIRSTELM, ...
             firstElms = topN(s2, nfirst)
-            felm[row, :] = map(i->i<=nfirst ? firstElms[i].first : missing, 1:4)
-            fsig[row, :] = map(i->i<=nfirst ? 100.0 * firstElms[i].second : missing, 1:4)
+            felm[ir, :] = map(j->j<=nfirst ? firstElms[j].first : missing, 1:4)
+            fsig[ir, :] = map(j->j<=nfirst ? 100.0 * firstElms[j].second : missing, 1:4)
         end
     end
     fourelms = DataFrame( #
@@ -189,10 +198,10 @@ function _quant(
         COUNTS = counts) #
         # Return the uncertainties or not...
     cols = Pair{Symbol,AbstractVector{Float64}}[ ]
-    for (i, elm) in enumerate(newcols)
-        push!(cols, convert(Symbol,elm)=>NeXLUncertainties.value.(quant[:,i]))
+    for (col, elm) in enumerate(newcols)
+        push!(cols, convert(Symbol,elm) => NeXLUncertainties.value.(quant[:,col]))
         if withUncertainty
-            push!(cols, Symbol("U[$(elm.symbol)]")=>NeXLUncertainties.σ.(quant[:,i]))
+            push!(cols, Symbol("U[$(elm.symbol)]")=>σ.(quant[:,col]))
         end
     end
     quantRes = DataFrame(cols...)
@@ -202,23 +211,23 @@ end
 function quantify(zep::Zeppelin,
     det::Detector,
     refs::Dict{Element,Spectrum},
-    rows::Union{Vector{Int},UnitRange{Int}}=1:1000000;
+    rows::Union{AbstractVector{Int},UnitRange{Int}}=eachparticle(zep);
     strip = Set{Element}( (n"C", ) ), # Elements to fit but not include in the result table.
     special = Set{Element}( ( n"O", ) ), # Element for special treatment in signature
     cullRule::CullingRule = NSigmaCulling(3.0),
     writeResidual::Bool = true,
     withUncertainty::Bool = true)
-    qr = _quant(zep,det,refs,rows,strip=strip,special=special,cullRule=cullRule,writeResidual=writeResidual,withUncertainty=withUncertainty)
+    qr = _quant(zep,det,refs,rows,strip,special,cullRule,writeResidual,withUncertainty)
     # Remove old items...
-    removeme = map(elm -> convert(Symbol, elm), zep.elms)
-    append!(removeme, map(elm -> Symbol("U[$elm.symbol]"), zep.elms))
-    append!(removeme, ALL_COMPOSITIONAL_COLUMNS)
-    # append!(removeme, ALL_CLASS_COLUMNS)
-    remaining = copy(zep.data[:, filter(f -> !(f in removeme), names(zep.data))])
+    removecols = map(elm -> convert(Symbol, elm), zep.elms)
+    append!(removecols, map(elm -> Symbol("U[$elm.symbol]"), zep.elms))
+    append!(removecols, ALL_COMPOSITIONAL_COLUMNS)
+    # append!(removecols, ALL_CLASS_COLUMNS)
+    remaining = copy(zep.data[rows, filter(f -> !(f in removecols), names(zep.data))])
     data = hcat(remaining, qr)
     # Replace outdated header items
     header = copy(zep.header)
-    headerfile =  joinpath(dirname(zep.headerfile),"generated.hdz") # So spectra and other path related items continue to work
+    headerfile =  joinpath(dirname(zep.headerfile),"npQuant.hdz") # So spectra and other path related items continue to work
     delete!(header, "MAX_PARTICLE")
     delete!(header, "MAX_RESIDUAL")
     # Add/replace header items

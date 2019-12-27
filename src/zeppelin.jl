@@ -107,11 +107,13 @@ function loadZep( hdzfilename::String)
     sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
     sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
     clsnames = map(c -> header[c], sortedkeys)
-    pxz = hcat(pxz, DataFrame(CLASSNAME = map(cl -> get(clsnames, convert(Int, cl) + 1, "####"), pxz[:, :CLASS])))
-    categorical!(pxz, :CLASS, compress = true) # Convert class column to pxz
-    categorical!(pxz, :CLASSNAME, compress = true) # Convert class column to pxz
-    cols = names(pxz)
-    elms = filter(z -> convert(Symbol, z) in cols, PeriodicTable.elements[1:94])
+    ic = findfirst(nm->nm==:CLASS, names(pxz))
+    if !isnothing(ic)
+        insertcols!(pxz, ic+1, CLASSNAME = map(cl -> get(clsnames, convert(Int, cl) + 1, "####"), pxz[:, :CLASS]))
+        categorical!(pxz, :CLASS, compress = true) # Convert class column to pxz
+        categorical!(pxz, :CLASSNAME, compress = true) # Convert class column to pxz
+    end
+    elms = filter(z -> convert(Symbol, z) in names(pxz), PeriodicTable.elements[1:94])
     return (header, elms, pxz)
 end
 
@@ -261,8 +263,7 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
             :TYPE_4ET_ => "Type[4ET]\t1\tLONG",
         )
         merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(elm.symbol) %(k) FLOAT" for elm in zep.elms))
-        merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "U[$(elm.symbol)] %(k) FLOAT" for elm in zep.elms))
-        merge!(remapcolumnnames, Dict( Symbol("U[$(elm.symbol)]")  => "U[$(elm.symbol)] %(k) FLOAT" for elm in zep.elms))
+        merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "U[$(uppercase(elm.symbol))] %(k) FLOAT" for elm in zep.elms))
         headeritems = copy(zep.header)
         # add back the element tags
         for (i,elm) in enumerate(zep.elms)
@@ -280,7 +281,16 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
             foreach(col->println(ios,remapcolumnnames[col]),colnames)
         end
         pxzfilename = replace( hdzfilename, r".[h|H][d|D][z|Z]"=>".pxz")
-        CSV.write(pxzfilename, zep.data[:, colnames], delim="\t", missingstring="-", writeheader=false)
+        zd = DataFrame()
+        for (ic, col) in enumerate(colnames)
+            et = eltype(zep.data[:,col])
+            if (et == Union{Missing, Element}) || (et == Element)
+                insertcols!(zd, ic, col=>Int[ismissing(elm) ? 0 : elm.number for elm in zep.data[:, col]])
+            else
+                insertcols!(zd, ic, col=>zep.data[:, col])
+            end
+        end
+        CSV.write(pxzfilename, zd, delim="\t", missingstring="-", writeheader=false)
 end
 
 function beamenergy(zep::Zeppelin, def=missing)

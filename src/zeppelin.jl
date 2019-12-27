@@ -262,8 +262,8 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
             :CLASS  => "PSEM_CLASS\t1\tINT16",
             :TYPE_4ET_ => "Type[4ET]\t1\tLONG",
         )
-        merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(elm.symbol) %(k) FLOAT" for elm in zep.elms))
-        merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "U[$(uppercase(elm.symbol))] %(k) FLOAT" for elm in zep.elms))
+        merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(uppercase(elm.symbol))\t%(k)\tFLOAT" for elm in zep.elms))
+        merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in zep.elms))
         headeritems = copy(zep.header)
         # add back the element tags
         for (i,elm) in enumerate(zep.elms)

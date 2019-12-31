@@ -82,10 +82,10 @@ function signature( #
         )
         kzs[kr.element] = kr.kratio * kstdpure
     end
-    onorm = sum(NeXLUncertainties.value(kzs[elm]) for elm in keys(kzs))
+    onorm = sum(value(kzs[elm]) for elm in keys(kzs))
     res = Dict(elm => kzs[elm] / onorm for elm in special)
     notspecial = filter(elm -> !(elm in special), keys(kzs))
-    norm = sum(NeXLUncertainties.value(kzs[elm]) for elm in notspecial)
+    norm = sum(value(kzs[elm]) for elm in notspecial)
     merge!(res, Dict(elm => kzs[elm] / norm for elm in notspecial))
     return res
 end
@@ -97,14 +97,14 @@ struct NSigmaCulling <: CullingRule
 end
 
 function cull(cr::NSigmaCulling, kr::KRatio)
-    k, s = NeXLUncertainties.value(kr.kratio), NeXLUncertainties.σ(kr.kratio)
+    k, s = value(kr.kratio), σ(kr.kratio)
     return k > cr.nsigma * s ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
 end
 
 struct NoCulling <: CullingRule end
 
 function cull(cr::NoCulling, kr::KRatio)
-    k, s = NeXLUncertainties.value(kr.kratio), NeXLUncertainties.σ(kr.kratio)
+    k, s = value(kr.kratio), σ(kr.kratio)
     return k > 0 ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
 end
 
@@ -191,17 +191,20 @@ function _quant(
         end
     end
     fourelms = DataFrame( #
-        FIRSTELM= felm[:,1], FIRSTPCT = NeXLUncertainties.value.(fsig[:,1]),
-        SECONDELM = felm[:,2], SECONDPCT = NeXLUncertainties.value.(fsig[:,2]), #
-        THIRDELM = felm[:,3],  THIRDPCT = NeXLUncertainties.value.(fsig[:,3]), #
-        FOURTHELM = felm[:,4], FOURTHPCT = NeXLUncertainties.value.(fsig[:,4]), #
+        FIRSTELM= felm[:,1], FIRSTPCT = value.(fsig[:,1]),
+        SECONDELM = felm[:,2], SECONDPCT = value.(fsig[:,2]), #
+        THIRDELM = felm[:,3],  THIRDPCT = value.(fsig[:,3]), #
+        FOURTHELM = felm[:,4], FOURTHPCT = value.(fsig[:,4]), #
         COUNTS = counts) #
         # Return the uncertainties or not...
     cols = Pair{Symbol,AbstractVector{Float64}}[ ]
+    # Handle missings...
+    asval(v) = ismissing(v) ? missing : value(v)
+    asσ(v) = ismissing(v) ? missing : σ(v)
     for (col, elm) in enumerate(newcols)
-        push!(cols, convert(Symbol,elm) => NeXLUncertainties.value.(quant[:,col]))
+        push!(cols, convert(Symbol,elm) => asval.(quant[:,col]))
         if withUncertainty
-            push!(cols, Symbol("U[$(uppercase(elm.symbol))]")=>σ.(quant[:,col]))
+            push!(cols, Symbol("U[$(uppercase(elm.symbol))]")=>asσ.(quant[:,col]))
         end
     end
     quantRes = DataFrame(cols...)

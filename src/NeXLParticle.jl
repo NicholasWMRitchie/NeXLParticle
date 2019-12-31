@@ -2,7 +2,6 @@ module NeXLParticle
 
 using DataFrames
 using FileIO
-
 using Reexport
 using Requires
 
@@ -26,8 +25,11 @@ export beamenergy, probecurrent
 export maxparticle
 
 include("signature.jl")
+export Signature
 export signature # Compures the particle signature
-export quantify # Quantifies the particle spectrum data and constructs a DataFrame with the results
+export quantify # Quantifies the particle spectrum data and constructs a fresh Zeppelin with the results
+export NSigmaCulling
+export NoCulling
 
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")

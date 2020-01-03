@@ -154,6 +154,11 @@ Returns the Spectrum (with images) associated with the particle at row
 """
 Base.getindex(zep::Zeppelin, row::Int) = spectrum(zep, row, true)
 
+Base.getindex(zep::Zeppelin, rows, cols) = Base.getindex(zep.data, rows, cols)
+
+Base.lastindex(zep::Zeppelin, axis::Integer) = Base.lastindex(zep.data, axis)
+
+
 """
     spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ext::AbstractString=".tif")
 
@@ -490,6 +495,17 @@ Example:
 function rowsClass(zep::Zeppelin, classname::AbstractString, shuffle=false)
     res = filter(i->zep.data[i,:CLASSNAME]==classname, eachparticle(zep))
     return shuffle ? Random.shuffle(res) : res
+end
+
+"""
+    Base.filter(filt::F, zep::Zeppelin)
+
+Use a function of the form `filt(zep, row)::Bool` to filter a Zeppelin dataset returning a new Zeppelin dataset
+with only the rows for which the function evaluated true.
+"""
+function Base.filter(filt::F, zep::Zeppelin)
+    rows = filter(row->filt(zep, row), eachparticle(zep))
+    return Zeppelin(zep.headerfile, copy(header), data[rows,:])
 end
 
 const MORPH_COLS = [ :NUMBER, :XABS, :YABS, :DAVG, :DMIN, :DMAX, :DPERP, :PERIMETER, :AREA ]

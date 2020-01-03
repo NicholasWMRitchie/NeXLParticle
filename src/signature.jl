@@ -104,8 +104,8 @@ end
 struct NoCulling <: CullingRule end
 
 function cull(cr::NoCulling, kr::KRatio)
-    k, s = value(kr.kratio), σ(kr.kratio)
-    return k > 0 ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
+    k = value(kr.kratio)
+    return k > 0 ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, σ(kr.kratio)))
 end
 
 
@@ -197,7 +197,7 @@ function _quant(
         FOURTHELM = felm[:,4], FOURTHPCT = value.(fsig[:,4]), #
         COUNTS = counts) #
         # Return the uncertainties or not...
-    cols = Pair{Symbol,AbstractVector{Float64}}[ ]
+    cols = Pair{Symbol,AbstractVector{Union{Float64,Missing}}}[ ]
     # Handle missings...
     asval(v) = ismissing(v) ? missing : value(v)
     asσ(v) = ismissing(v) ? missing : σ(v)

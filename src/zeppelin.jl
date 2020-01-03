@@ -498,12 +498,12 @@ function rowsClass(zep::Zeppelin, classname::AbstractString, shuffle=false)
 end
 
 """
-    Base.filter(filt::F, zep::Zeppelin)
+    Base.filter(filt::Function, zep::Zeppelin)
 
 Use a function of the form `filt(zep, row)::Bool` to filter a Zeppelin dataset returning a new Zeppelin dataset
 with only the rows for which the function evaluated true.
 """
-function Base.filter(filt::F, zep::Zeppelin)
+function Base.filter(filt::Function, zep::Zeppelin)
     rows = filter(row->filt(zep, row), eachparticle(zep))
     return Zeppelin(zep.headerfile, copy(header), data[rows,:])
 end

@@ -24,6 +24,8 @@ export allelms
 export beamenergy, probecurrent
 export maxparticle
 
+export ParticleClassifier
+
 include("signature.jl")
 export Signature
 export signature # Compures the particle signature

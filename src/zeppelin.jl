@@ -178,7 +178,14 @@ function spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ex
     return joinpath(dirname(zep.headerfile), "$(dir)$(mag)", repeat('0',max(0,5-length(tmp)))*tmp*ext)
 end
 
+"""
+    ParticleClassifier
 
+A type that implements:
+
+    classify(zep::Zeppelin, sr::ParticleClassifier)::CategoricalArray{String}
+"""
+abstract type ParticleClassifier end
 
 """
     spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum, missing}

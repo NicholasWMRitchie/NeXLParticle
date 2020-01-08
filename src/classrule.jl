@@ -1,43 +1,106 @@
 using CategoricalArrays
 
 struct OrderedRuleSet <: ParticleClassifier
+    name::String
     rules::Vector{Tuple{String,Function}}
 
-    OrderedRuleSet(rules::Tuple{String,Function}...) = new(collect(rules))
+    OrderedRuleSet(name::String, rules::Tuple{String,Function}...) = new(name, collect(rules))
 
-    function OrderedRuleSet(base::OrderedRuleSet, extra::OrderedRuleSet, prepend::Bool)
-        rules = prepend ? extra.rules : base.rules
-        append!(rules, prepend ? base.rules : extra.rules)
-        return new(rules)
+    function OrderedRuleSet(orss::OrderedRuleSet...)
+        rules = Vector{Tuple{String,Function}}()
+        name = String[]
+        for ors in orss
+            append!(rules, ors.rules)
+            push!(name, ors.name)
+        end
+        return new(join(name, "+"), rules)
     end
 end
 
+Base.show(io::IO, ors::OrderedRuleSet) = print(io, "JORS[$(ors.name)]")
 classnames(sr::OrderedRuleSet) = collect(map(r -> r[1], sr.rules))
 
-classify(sr::OrderedRuleSet, zep::Zeppelin)::CategoricalArray{String} =
-    categorical([classify(sr, zep.data[row, :]) for row in eachparticle(zep)])
+"""
+    classify(zep::Zeppelin, catcls::CategoricalArray{String})
 
-function classify(sr::OrderedRuleSet, input::Dict{Symbol,Float64})
-    i = findfirst(rule -> rule[2](input), sr.rules)
-    return isnothing(i) ? "**NONE**" : sr.rules[i][1]
+Assign the CLASS column to the contents of this CategoricalArray.
+"""
+function classify(zep::Zeppelin, catcls::CategoricalArray{String})::Zeppelin
+    @assert length(catcls) == nrow(zep.data)
+    # Figure out where to put the column...
+    cols = collect(1:ncol(zep.data))
+    clscol = findfirst(n -> n == :CLASS, names(zep.data))
+    if !isnothing(clscol)
+        cols = deleteat!(cols, clscol)
+    else
+        clscols = findfirst(n -> n == :FIRSTELM, names(zep.data))
+        clscols = isnothing(clscols) ? ncols(zep.data) + 1 : clscols
+    end
+    # Copy the data and insert the column
+    result = Zeppelin(zep.headerfile, zep.header, zep.data[:, cols])
+    insertcols!(result.data, clscol, :CLASS => catcls)
+    return result
 end
 
+"""
+    classify(zep::Zeppelin, )::Zeppelin
+
+Classify the rows in `zep`, row-by-row by calling the applying the `OrderedRuleSet` to each row. Returns a new
+Zeppelin object.
+"""
+function classify(zep::Zeppelin, sr::OrderedRuleSet)::Zeppelin
+    cat = categorical(append!(classnames(sr), ["Other"]), false, ordered = true) # set up the levels
+    cat = cat[1:0] # delete the data but retain the levels
+    errcx = 0
+    missingElms = Dict(s => 0.0 for s in filter(
+        sy -> !(sy in names(zep.data)),
+        map(z -> convert(Symbol, elements[z]), 1:95),
+    ))
+    for row in eachparticle(zep)
+        try
+            input = Dict(n => zep.data[row, n] for n in names(zep.data))
+            merge!(input, missingElms)
+            push!(cat, classify(sr, input))
+        catch err
+            errcx += 1
+            if errcx == 1
+                levels!(cat, ["!!ERROR!!"])
+            end
+            push!(cat, "!!ERROR!!")
+            if errcx <= 4
+                print("ERROR$errcx: ")
+                showerror(stdout, err)
+                println()
+            end
+        end
+    end
+    res = classify(zep, cat)
+    res.header["RULE_FILE"]=repr(sr)
+    return res
+end
+
+function classify(sr::OrderedRuleSet, input::Dict{Symbol,Any})
+    i = findfirst(rule -> rule[2](input), sr.rules)
+    return isnothing(i) ? "Other" : sr.rules[i][1]
+end
+
+const NullRules = OrderedRuleSet("Null", ("Unclassified", inp -> true) )
+
 const GSRRules = OrderedRuleSet(
-    ("GSR1", inp -> (inp[:PB] > 1) && (inp[:BA] > 1) && (inp[:SB] > 1)),
-    ("GSR2", inp -> (inp[:PB] > 4) && (inp[:BA] > 5) && (inp[:CA] > 5) && (inp[:SN] > 5) && (inp[:SI] > 5)),
-    ("GSR3", inp -> (inp[:GD] > 5) && (inp[:TI] > 1) && (inp[:ZN] > 1)),
-    ("GSR4", inp -> (inp[:GA] > 5) && (inp[:CU] > 1) && (inp[:SN] > 1)),
-    (
-     "Char GSR-like",
-     inp -> (inp[:PB] > 5) && (inp[:BA] > 5) && (inp[:SB] > 5) && (inp[:PB] + inp[:BA] + inp[:SB] > 50),
-    ),
-    ("Sr-bearing", inp -> inp[:SR] > 10),
+    "GSR",
+    ("GSR1", inp -> (inp[:PB] > 5) && (inp[:BA] > 5) && (inp[:SB] > 5) && (inp[:PB] + inp[:BA] + inp[:SB] > 50)),
+    ("GSR2", inp -> (inp[:PB] > 1) && (inp[:BA] > 1) && (inp[:SB] > 1)),
+    ("GSR3", inp -> (inp[:PB] > 4) && (inp[:BA] > 5) && (inp[:CA] > 5) && (inp[:SN] > 5) && (inp[:SI] > 5)),
+    ("GSR4", inp -> (inp[:GD] > 5) && (inp[:TI] > 1) && (inp[:ZN] > 1)),
+    ("GSR5", inp -> (inp[:GA] > 5) && (inp[:CU] > 1) && (inp[:SN] > 1)),
     ("Pb-Ba", inp -> (inp[:PB] > 5) && (inp[:BA] > 5) && (inp[:PB] + inp[:BA] > 50)),
     ("Pb-Sb", inp -> (inp[:PB] > 5) && (inp[:SB] > 5) && (inp[:PB] + inp[:SB] > 50)),
     ("Ba-Sb", inp -> (inp[:BA] > 5) && (inp[:SB] > 5) && (inp[:BA] + inp[:SB] > 50)),
-)
+    ("Sr-bearing", inp -> inp[:SR] > 10),
+);
 
 const BaseRules = OrderedRuleSet(
+    "Base",
     ("LowCounts", inp -> inp[:COUNTS] < 2000),
     (
      "Maraging",
@@ -137,20 +200,26 @@ const BaseRules = OrderedRuleSet(
     ("Salt", inp -> (inp[:K] + inp[:NA] > 20) && (inp[:CL] > 20) && (inp[:K] + inp[:NA] + inp[:CL] > 80)),
     ("Bismuth", inp -> (inp[:BI] > 80)),
     ("Brass", inp -> (inp[:CU] > 20) && (inp[:ZN] > 20) && (inp[:CU] + inp[:ZN] > 80)),
-    ("Bronze", inp -> (inp[:CU] > 20) && (Sn > 20) && (inp[:CU] + Sn > 80)),
+    ("Bronze", inp -> (inp[:CU] > 20) && (inp[:SN] > 20) && (inp[:CU] + inp[:SN] > 80)),
     ("Cupronickel", inp -> (inp[:CU] > 30) && (inp[:NI] > 10) && (inp[:CU] + inp[:NI] > 80)),
     ("Sodium sulfide", inp -> (inp[:NA] > 20) && (inp[:S] > 10) && (inp[:NA] + inp[:S] > 80)),
     ("Wurtzite (ZnS)", inp -> (inp[:ZN] > 20) && (inp[:S] > 10) && (inp[:ZN] + inp[:S] > 80)),
     ("Pyrite (FeS2)", inp -> (inp[:FE] > 20) && (inp[:S] > 20) && (inp[:FE] + inp[:S] > 80)),
     ("Silver sulfide", inp -> (inp[:AG] > 20) && (inp[:S] > 10) && (inp[:AG] + inp[:S] > 80)),
-    ("Sn62 solder", inp -> (Sn > 30) && (inp[:PB] > 10) && (inp[:AG] > 1) && (Sn + inp[:PB] + inp[:AG] > 80)),
+    (
+     "Sn62 solder",
+     inp -> (inp[:SN] > 30) && (inp[:PB] > 10) && (inp[:AG] > 1) && (inp[:SN] + inp[:PB] + inp[:AG] > 80),
+    ),
     (
      "SACZ solder",
-     inp -> (Sn + inp[:AG] + inp[:CU] + inp[:ZN] > 80) &&
-            (Sn > 10) && (inp[:CU] > 10) && (inp[:AG] > 10) && (inp[:ZN] > 2),
+     inp -> (inp[:SN] + inp[:AG] + inp[:CU] + inp[:ZN] > 80) &&
+            (inp[:SN] > 10) && (inp[:CU] > 10) && (inp[:AG] > 10) && (inp[:ZN] > 2),
     ),
-    ("Lead solder", inp -> (inp[:PB] > 20) && (Sn > 20) && (inp[:PB] + Sn > 80)),
-    ("SAC solder", inp -> (Sn + inp[:AG] + inp[:CU] > 80) && (Sn > 10) && (inp[:CU] > 10) && (inp[:AG] > 10)),
+    ("Lead solder", inp -> (inp[:PB] > 20) && (inp[:SN] > 20) && (inp[:PB] + inp[:SN] > 80)),
+    (
+     "SAC solder",
+     inp -> (inp[:SN] + inp[:AG] + inp[:CU] > 80) && (inp[:SN] > 10) && (inp[:CU] > 10) && (inp[:AG] > 10),
+    ),
     ("Titanium", inp -> (inp[:TI] > 80)),
     ("Calcium phosphate", inp -> (inp[:CA] > 40) && (inp[:P] > 10) && (inp[:CA] + inp[:P] > 80)),
     ("Calcium fluoride", inp -> (inp[:CA] > 40) && (inp[:F] > 10) && (inp[:CA] + inp[:F] > 80)),
@@ -159,7 +228,7 @@ const BaseRules = OrderedRuleSet(
     ("Other Silicate", inp -> (inp[:SI] > 20) && (inp[:AL] + inp[:FE] + inp[:CA] + inp[:SI] > 80)),
     ("Gold-Silver alloy", inp -> (inp[:FIRSTELM] == 79) && (inp[:SECONDELM] == 47) && (inp[:AU] + inp[:AG] > 80)),
     ("Gold - other", inp -> inp[:AU] > 80),
-    ("Tin", inp -> Sn > 80),
+    ("Tin", inp -> inp[:SN] > 80),
     ("Celestine", inp -> (inp[:SR] > 40) && (inp[:S] > 10) && (inp[:SR] + inp[:S] > 80) && (inp[:O] > 5)),
     ("Barite-Celestine", inp -> (inp[:BA] + inp[:SR] > 40) && (inp[:BA] + inp[:SR] + inp[:S] > 80) && (inp[:O] > 5)),
     ("Cu-rich", inp -> inp[:CU] > 80),
@@ -183,5 +252,5 @@ const BaseRules = OrderedRuleSet(
     ("Au-Cu alloy", inp -> (inp[:AU] > 40) && (inp[:CU] > 10) && (inp[:AU] + inp[:CU] + inp[:NI] > 80)),
     ("Uranium-bearing", inp -> inp[:U] > 20),
     ("Thorium-bearing", inp -> inp[:TH] > 20),
-    ("Platinum", inp -> inp[:PT] > 80),
-)
+    ("Platinum", inp -> inp[:PT] > 80)
+);

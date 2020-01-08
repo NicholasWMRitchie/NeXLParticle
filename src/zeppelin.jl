@@ -73,7 +73,8 @@ function loadZep( hdzfilename::String)
         "PCT2" => "SECONDPCT",
         "PCT3" => "THIRDPCT",
         "PCT4" => "FOURTHPCT",
-        "TYPE(4ET#)" => "TYPE4ET",
+        "TYPE(4ET)#" => "TYPE4ET",
+        "TYPE(4ET)" => "TYPE4ET",
         "VOID_AREA" => "VOIDAREA",
         "RMS_VIDEO" => "RMSVIDEO",
         "FIT_QUAL" => "FITQUAL",
@@ -96,25 +97,54 @@ function loadZep( hdzfilename::String)
             push!(columns, string.(strip.(split(line, "\t"))))
         end
     end
-    foreach(hi -> if haskey(header, hi) delete!(header, hi) end, ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ))
-    # Remove and regenerate "ELEMXX" data
-    foreach(f->if startswith(f,"ELEM") delete!(header,f) end, keys(header))
     pxz = CSV.File(
         replace( hdzfilename, r".[h|H][d|D][z|Z]$" => ".pxz"),
         header = columnnames(columns),
         normalizenames = true,
     ) |> DataFrame
+    elms = filter(z -> convert(Symbol, z) in names(pxz), PeriodicTable.elements[1:94])
+    return (_massagehdz(header), elms, _massagepxz(header, pxz))
+end
+
+function _massagehdz(header)
+    res = copy(header)
+    foreach(hi -> if haskey(header, hi) delete!(res, hi) end, ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ))
+    foreach(f->if startswith(f,"ELEM") delete!(res,f) end, keys(header))
+    foreach(f->if startswith(f,"CLASS") delete!(res,f) end, keys(header))
+    return res
+end
+
+# Mostly converts columns to categorical as desired...
+function _massagepxz(header, pxz)::DataFrame
+    res = copy(pxz)
     sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
     sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
-    clsnames = map(c -> header[c], sortedkeys)
-    ic = findfirst(nm->nm==:CLASS, names(pxz))
-    if !isnothing(ic)
-        insertcols!(pxz, ic+1, CLASSNAME = map(cl -> get(clsnames, convert(Int, cl) + 1, "####"), pxz[:, :CLASS]))
-        categorical!(pxz, :CLASS, compress = true) # Convert class column to pxz
-        categorical!(pxz, :CLASSNAME, compress = true) # Convert class column to pxz
+    clsnames = append!(["--None--"], map(c -> header[c], sortedkeys))
+    for col in (:CLASS, :VERIFIED_CLASS)
+        ic = findfirst(nm->nm==col, names(res))
+        if !isnothing(ic)
+            cls = categorical(clsnames, ordered=true)[1:0] # empty but with correct levels
+            foreach(name->push!(cls, name), map(cl -> get(clsnames, convert(Int, cl) + 2, "####"), pxz[:, col]))
+            select!(res, Not(ic))
+            insertcols!(res, ic, col=>cls)
+        end
     end
-    elms = filter(z -> convert(Symbol, z) in names(pxz), PeriodicTable.elements[1:94])
-    return (header, elms, pxz)
+    for col in ( :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM)
+        ic = findfirst(nm->nm==col, names(res))
+        if !isnothing(ic)
+            fee=categorical(elements[1:95],false,ordered=true)[1:0]
+            foreach(z->push!(fee, elements[z]), pxz[:,col])
+            select!(res, Not(ic))
+            insertcols!(res, ic, col=>fee)
+        end
+    end
+    for col in ( :XDAC, :YDAC, :TYPE_4ET_, :TYPE4ET )
+        ic = findfirst(nm->nm==col, names(res))
+        if !isnothing(ic)
+            select!(res, Not(ic))
+        end
+    end
+    return res
 end
 
 function Base.show(io::IO, zep::Zeppelin)

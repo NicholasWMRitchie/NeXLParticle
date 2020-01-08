@@ -33,9 +33,17 @@ export quantify # Quantifies the particle spectrum data and constructs a fresh Z
 export NSigmaCulling
 export NoCulling
 
+include("classrule.jl")
+export classify
+export OrderedRuleSet
+export GSRRules
+export BaseRules
+export NullRules
+
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")
     @info "Loading Gadfly support into NeXLParticle."
 end
+
 
 end

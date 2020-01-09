@@ -21,7 +21,7 @@ export eachparticle # The range of partice row indices
 export rowsMax, rowsClass
 export MORPH_COLS, COMP_COLS, CLASS_COLS
 export allelms
-export beamenergy, probecurrent
+export beamenergy, probecurrent, magdata
 export maxparticle
 
 export ParticleClassifier

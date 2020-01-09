@@ -257,82 +257,94 @@ function iszeppelin(filename::String)
 end
 
 function writeZep(zep::Zeppelin,  hdzfilename::String)
-        remapcolumnnames = Dict{Symbol,String}(
-            :NUMBER => "PART#\t1\tINT16",
-            :FIELD  => "FIELD#\t1\tINT16",
-            :MAGFIELD  => "MAGFIELD#\t1\tINT16",
-            :XABS  => "X_ABS\tmm\tFLOAT",
-            :YABS  => "Y_ABS\tmm\tFLOAT",
-            :XDAC  => "X_DAC\t1\tINT16",
-            :YDAC  => "Y_DAC\t1\tINT16",
-            :XFERET  => "X_FERET\tµm\tFLOAT",
-            :YFERET  => "Y_FERET\tµm\tFLOAT",
-            :DAVG  => "DAVE\tµm\tFLOAT",
-            :DMAX  => "DMAX\tµm\tFLOAT",
-            :DMIN  => "DMIN\tµm\tFLOAT",
-            :DPERP  => "DPERP\tµm\tFLOAT",
-            :ASPECT  =>"ASPECT\t1\tFLOAT",
-            :AREA  => "AREA\tµm²\tFLOAT",
-            :PERIMETER  => "PERIMETER\tµm\tFLOAT",
-            :ORIENTATION  => "ORIENTATION\tdeg\tFLOAT",
-            :LIVETIME  => "LIVE_TIME\ts\tFLOAT",
-            :FITQUAL  => "FIT_QUAL\t1\tFLOAT",
-            :MAG  => "MAG\t1\tINT16",
-            :VIDEO  => "VIDEO\t1\tINT16",
-            :IMPORTANCE  => "IMPORTANCE\t1\tINT16",
-            :COUNTS  => "COUNTS\t1\tFLOAT",
-            :MAGINDEX  => "MAG_INDEX\t1\tINT16",
-            :FIRSTELM  => "FIRST_ELEM\t1\tINT16",
-            :SECONDELM  => "SECOND_ELEM\t1\tINT16",
-            :THIRDELM  => "THIRD_ELEM\t1\tINT16",
-            :FOURTHELM  => "FOURTH_ELEM\t1\tINT16",
-            :COUNTS1  => "FIRST_CONC\tcounts\tFLOAT",
-            :COUNTS2  => "SECOND_CONC\tcounts\tFLOAT",
-            :COUNTS3  => "THIRD_CONC\tcounts\tFLOAT",
-            :COUNTS4  => "FOURTH_CONC\tcounts\tFLOAT",
-            :FIRSTPCT  => "FIRST_PCT\t%\tFLOAT",
-            :SECONDPCT  => "SECOND_PCT\t%\tFLOAT",
-            :THIRDPCT  => "THIRD_PCT\t%\tFLOAT",
-            :FOURTHPCT  => "FOURTH_PCT\t%\tFLOAT",
-            :TYPE4ET  => "TYPE(4ET#)\t1\tLONG",
-            :VOIDAREA  => "VOID_AREA\tµm²\tFLOAT",
-            :RMSVIDEO  => "RMS_VIDEO\t1\tINT16",
-            :FITQUAL  => "FIT_QUAL\t1\tFLOAT",
-            :VERIFIEDCLASS  => "VERIFIED_CLASS\t1\tINT16",
-            :EDGEROUGHNESS  => "EDGE_ROUGHNESS\t1\tFLOAT",
-            :COMPHASH  => "COMP_HASH\t1\tLONG",
-            :CLASS  => "PSEM_CLASS\t1\tINT16",
-            :TYPE_4ET_ => "Type[4ET]\t1\tLONG",
-        )
-        merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(uppercase(elm.symbol))\t%(k)\tFLOAT" for elm in zep.elms))
-        merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in zep.elms))
-        headeritems = copy(zep.header)
-        # add back the element tags
-        for (i,elm) in enumerate(zep.elms)
-            headeritems["ELEM$i"] = "$(elm.symbol) $(z(elm)) 1"
+    remapcolumnnames = Dict{Symbol,String}(
+        :NUMBER => "PART#\t1\tINT16",
+        :FIELD  => "FIELD#\t1\tINT16",
+        :MAGFIELD  => "MAGFIELD#\t1\tINT16",
+        :XABS  => "X_ABS\tmm\tFLOAT",
+        :YABS  => "Y_ABS\tmm\tFLOAT",
+        :XDAC  => "X_DAC\t1\tINT16",
+        :YDAC  => "Y_DAC\t1\tINT16",
+        :XFERET  => "X_FERET\tµm\tFLOAT",
+        :YFERET  => "Y_FERET\tµm\tFLOAT",
+        :DAVG  => "DAVE\tµm\tFLOAT",
+        :DMAX  => "DMAX\tµm\tFLOAT",
+        :DMIN  => "DMIN\tµm\tFLOAT",
+        :DPERP  => "DPERP\tµm\tFLOAT",
+        :ASPECT  =>"ASPECT\t1\tFLOAT",
+        :AREA  => "AREA\tµm²\tFLOAT",
+        :PERIMETER  => "PERIMETER\tµm\tFLOAT",
+        :ORIENTATION  => "ORIENTATION\tdeg\tFLOAT",
+        :LIVETIME  => "LIVE_TIME\ts\tFLOAT",
+        :FITQUAL  => "FIT_QUAL\t1\tFLOAT",
+        :MAG  => "MAG\t1\tINT16",
+        :VIDEO  => "VIDEO\t1\tINT16",
+        :IMPORTANCE  => "IMPORTANCE\t1\tINT16",
+        :COUNTS  => "COUNTS\t1\tFLOAT",
+        :MAGINDEX  => "MAG_INDEX\t1\tINT16",
+        :FIRSTELM  => "FIRST_ELEM\t1\tINT16",
+        :SECONDELM  => "SECOND_ELEM\t1\tINT16",
+        :THIRDELM  => "THIRD_ELEM\t1\tINT16",
+        :FOURTHELM  => "FOURTH_ELEM\t1\tINT16",
+        :COUNTS1  => "FIRST_CONC\tcounts\tFLOAT",
+        :COUNTS2  => "SECOND_CONC\tcounts\tFLOAT",
+        :COUNTS3  => "THIRD_CONC\tcounts\tFLOAT",
+        :COUNTS4  => "FOURTH_CONC\tcounts\tFLOAT",
+        :FIRSTPCT  => "FIRST_PCT\t%\tFLOAT",
+        :SECONDPCT  => "SECOND_PCT\t%\tFLOAT",
+        :THIRDPCT  => "THIRD_PCT\t%\tFLOAT",
+        :FOURTHPCT  => "FOURTH_PCT\t%\tFLOAT",
+        :TYPE4ET  => "TYPE(4ET#)\t1\tLONG",
+        :VOIDAREA  => "VOID_AREA\tµm²\tFLOAT",
+        :RMSVIDEO  => "RMS_VIDEO\t1\tINT16",
+        :FITQUAL  => "FIT_QUAL\t1\tFLOAT",
+        :VERIFIEDCLASS  => "VERIFIED_CLASS\t1\tINT16",
+        :EDGEROUGHNESS  => "EDGE_ROUGHNESS\t1\tFLOAT",
+        :COMPHASH  => "COMP_HASH\t1\tLONG",
+        :CLASS  => "PSEM_CLASS\t1\tINT16",
+        :TYPE_4ET_ => "Type[4ET]\t1\tLONG",
+    )
+    merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(uppercase(elm.symbol))\t%(k)\tFLOAT" for elm in zep.elms))
+    merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in zep.elms))
+    headeritems = copy(zep.header)
+    # add back the element tags
+    for (i,elm) in enumerate(zep.elms)
+        headeritems["ELEM$(i-1)"] = "$(elm.symbol) $(z(elm)) 1"
+    end
+    headeritems["ELEMENTS"] = "$(length(zep.elms))"
+    if :CLASS in names(zep.data)
+        clsdata=zep.data[:,:CLASS]
+        for (i,cls) in enumerate(clsdata.pool.index[2:end])
+            headeritems["CLASS$(i-1)"]=cls
+            headeritems["CLASSES"]="$(i+1)"
         end
-        headeritems["ELEMENTS"] = "$(length(zep.elms))"
-        headeritems["TOTAL_PARTICLES"] = "$(size(zep.data,1))"
-        # write out the header
-        colnames = filter(n-> n != :CLASSNAME, names(zep.data))
-        open(hdzfilename,"w") do ios
-            println(ios, "PARAMETERS=$(length(headeritems)+size(zep.data,2)+2)")
-            println(ios, "HEADER_FMT=ZEPP_1")
-            foreach(hk->println(ios,"$(hk)=$(headeritems[hk])"), sort(collect(keys(headeritems))))
-            println(ios, "PARTICLE_PARAMETERS=$(size(zep.data,2))")
-            foreach(col->println(ios,remapcolumnnames[col]),colnames)
-        end
-        pxzfilename = replace( hdzfilename, r".[h|H][d|D][z|Z]"=>".pxz")
-        zd = DataFrame()
-        for (ic, col) in enumerate(colnames)
-            et = eltype(zep.data[:,col])
-            if (et == Union{Missing, Element}) || (et == Element)
-                insertcols!(zd, ic, col=>Int[ismissing(elm) ? 0 : elm.number for elm in zep.data[:, col]])
+    end
+    headeritems["TOTAL_PARTICLES"] = "$(size(zep.data,1))"
+    # write out the header
+    colnames = filter(n-> n != :CLASSNAME, names(zep.data))
+    open(hdzfilename,"w") do ios
+        println(ios, "PARAMETERS=$(length(headeritems)+size(zep.data,2)+2)")
+        println(ios, "HEADER_FMT=ZEPP_1")
+        foreach(hk->println(ios,"$(hk)=$(headeritems[hk])"), sort(collect(keys(headeritems))))
+        println(ios, "PARTICLE_PARAMETERS=$(size(zep.data,2))")
+        foreach(col->println(ios,remapcolumnnames[col]),colnames)
+    end
+    pxzfilename = replace( hdzfilename, r".[h|H][d|D][z|Z]"=>".pxz")
+    zd = DataFrame(zep.data)
+    # Replace categorical data with the index (either into CLASS# in header or z(elm))
+    for (ic, col) in enumerate(names(zd))
+        coldata=zd[:,col]
+        if coldata isa CategoricalArray
+            select!(zd,Not(ic))
+            et = eltype(coldata)
+            if et == CategoricalArrays.CategoricalString{UInt32}
+                insertcols!(zd, ic, col=>[ coldata.refs[i]-2  for i in eachindex(coldata) ]) # CLASS
             else
-                insertcols!(zd, ic, col=>zep.data[:, col])
+                insertcols!(zd, ic, col=>[ coldata.refs[i]  for i in eachindex(coldata) ]) # Element
             end
         end
-        CSV.write(pxzfilename, zd, delim="\t", missingstring="-", writeheader=false)
+    end
+    CSV.write(pxzfilename, zd, delim="\t", missingstring="-", writeheader=false)
 end
 
 function beamenergy(zep::Zeppelin, def=missing)
@@ -357,6 +369,12 @@ function probecurrent(zep::Zeppelin, def=missing)
         # Ignore it...
     end
     return val
+end
+
+function magdata(zep::Zeppelin, index::Int)
+    h = split(zep.header["MAG_FMT"],isspace)
+    v = split(zep.header["MAG$index"],isspace)
+    return Dict( string(h[i])=>parse(Float64, v[i]) for i in 1:min(length(h),length(v)) )
 end
 
 """

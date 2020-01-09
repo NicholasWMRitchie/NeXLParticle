@@ -204,7 +204,7 @@ function _quant(
     for (col, elm) in enumerate(newcols)
         push!(cols, convert(Symbol,elm) => asval.(quant[:,col]))
         if withUncertainty
-            push!(cols, Symbol("U[$(uppercase(elm.symbol))]")=>asσ.(quant[:,col]))
+            push!(cols, Symbol("U_$(uppercase(elm.symbol))_")=>asσ.(quant[:,col]))
         end
     end
     quantRes = DataFrame(cols...)
@@ -223,7 +223,7 @@ function quantify(zep::Zeppelin,
     qr = _quant(zep,det,refs,rows,strip,special,cullRule,writeResidual,withUncertainty)
     # Remove old items...
     removecols = map(elm -> convert(Symbol, elm), zep.elms)
-    append!(removecols, map(elm -> Symbol("U[$(uppercase(elm.symbol))]"), zep.elms))
+    append!(removecols, map(elm -> Symbol("U_$(uppercase(elm.symbol))_"), zep.elms))
     append!(removecols, ALL_COMPOSITIONAL_COLUMNS)
     # append!(removecols, ALL_CLASS_COLUMNS)
     remaining = copy(zep.data[rows, filter(f -> !(f in removecols), names(zep.data))])

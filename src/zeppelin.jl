@@ -1,6 +1,7 @@
 using CSV
 using DataStructures
 using Random
+using StatsBase
 
 Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 
@@ -100,7 +101,10 @@ function loadZep( hdzfilename::String)
     pxz = CSV.File(
         replace( hdzfilename, r".[h|H][d|D][z|Z]$" => ".pxz"),
         header = columnnames(columns),
+        delim='\t',
         normalizenames = true,
+        missingstring="-",
+        decimal='.'
     ) |> DataFrame
     elms = filter(z -> convert(Symbol, z) in names(pxz), PeriodicTable.elements[1:94])
     return (_massagehdz(header), elms, _massagepxz(header, pxz))
@@ -123,7 +127,7 @@ function _massagepxz(header, pxz)::DataFrame
     for col in (:CLASS, :VERIFIED_CLASS)
         ic = findfirst(nm->nm==col, names(res))
         if !isnothing(ic)
-            cls = categorical(clsnames, ordered=true)[1:0] # empty but with correct levels
+            cls = categorical(Union{String,Missing}[ clsnames... ], ordered=true)[1:0] # empty but with correct levels
             foreach(name->push!(cls, name), map(cl -> get(clsnames, convert(Int, cl) + 2, "####"), pxz[:, col]))
             select!(res, Not(ic))
             insertcols!(res, ic, col=>cls)
@@ -132,8 +136,8 @@ function _massagepxz(header, pxz)::DataFrame
     for col in ( :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM)
         ic = findfirst(nm->nm==col, names(res))
         if !isnothing(ic)
-            fee=categorical(elements[1:95],false,ordered=true)[1:0]
-            foreach(z->push!(fee, elements[z]), pxz[:,col])
+            fee=categorical( Union{Element,Missing}[ elements[1:95]...],false,ordered=true)[1:0]
+            foreach(z->push!(fee, z>0 ? elements[z] : missing), pxz[:,col])
             select!(res, Not(ic))
             insertcols!(res, ic, col=>fee)
         end
@@ -177,6 +181,18 @@ end
 
 eachparticle(zep::Zeppelin) = 1:size(zep.data, 1)
 
+function describe(zep::Zeppelin, allClasses=false)
+    ic = findfirst(col->col==:CLASS,names(zep.data))
+    cns, cxs = String[ "All" ], Int[ size(zep.data,1) ]
+    if !isnothing(ic)
+        for (cn, cx) in StatsBase.countmap(zep[:,:CLASS])
+            push!(cns, string(cn))  # Class name
+            push!(cxs, cx) # Count
+        end
+    end
+    return sort!(DataFrame(Class=cns, Count=cxs),(:Count, :Class),rev=true)
+end
+
 """
     zep[123] # where zep is a Zeppelin
 
@@ -188,6 +204,8 @@ Base.getindex(zep::Zeppelin, rows, cols) = Base.getindex(zep.data, rows, cols)
 
 Base.lastindex(zep::Zeppelin, axis::Integer) = Base.lastindex(zep.data, axis)
 
+# Replace the default in PeriodicTable because it is too verbose...
+Base.show(io::IO, elm::Element) = print(io, elm.symbol)
 
 """
     spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ext::AbstractString=".tif")
@@ -236,7 +254,7 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Miss
             at[:BeamEnergy] = beamenergy(zep, get(at, :BeamEnergy, 20.0e3))
             at[:ProbeCurrent] = get(at, :ProbeCurrent, probecurrent(zep, 1.0))
             at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in zep.elms))
-            at[:Name] = "P[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASSNAME])]"
+            at[:Name] = "P[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASS])]"
         catch
             @info "Error adding properties to ASPEX TIFF file."
         end
@@ -305,7 +323,7 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
         :TYPE_4ET_ => "Type[4ET]\t1\tLONG",
     )
     merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(uppercase(elm.symbol))\t%(k)\tFLOAT" for elm in zep.elms))
-    merge!(remapcolumnnames, Dict( Symbol("U[$(uppercase(elm.symbol))]")  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in zep.elms))
+    merge!(remapcolumnnames, Dict( Symbol("U_$(uppercase(elm.symbol))_")  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in zep.elms))
     headeritems = copy(zep.header)
     # add back the element tags
     for (i,elm) in enumerate(zep.elms)
@@ -321,7 +339,7 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
     end
     headeritems["TOTAL_PARTICLES"] = "$(size(zep.data,1))"
     # write out the header
-    colnames = filter(n-> n != :CLASSNAME, names(zep.data))
+    colnames = names(zep.data)
     open(hdzfilename,"w") do ios
         println(ios, "PARAMETERS=$(length(headeritems)+size(zep.data,2)+2)")
         println(ios, "HEADER_FMT=ZEPP_1")
@@ -508,7 +526,7 @@ Example:
     plot(zep, rowsMax(zep, :DAVG, "Calcite", 10))
 """
 function rowsMax(zep::Zeppelin, col::Symbol, classname::AbstractString, n::Int=20)
-    cr = filter(r->zep.data[r,:CLASSNAME]==classname, eachparticle(zep))
+    cr = filter(r->zep.data[r,:CLASS]==classname, eachparticle(zep))
     d = collect(zip(cr, zep.data[cr,col]))
     s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
     return getindex.(s[intersect(eachindex(cr),1:n)],1)
@@ -527,7 +545,7 @@ Example:
 """
 function rowsMin(zep::Zeppelin, col::Symbol, classname::AbstractString, n::Int=20)
     # Extract the rows for the class
-    cr = filter(r->zep.data[r,:CLASSNAME]==classname, eachparticle(zep))
+    cr = filter(r->zep.data[r,:CLASS]==classname, eachparticle(zep))
     # Combine (row, datum) for each row
     d = collect(zip(cr, zep.data[cr,col]))
     # Sort by datum
@@ -548,7 +566,7 @@ Example:
     plot(zep, rowsClass(zep,"Calcite",true)[1:10], xmax=8.0e3)
 """
 function rowsClass(zep::Zeppelin, classname::AbstractString, shuffle=false)
-    res = filter(i->zep.data[i,:CLASSNAME]==classname, eachparticle(zep))
+    res = filter(i->zep.data[i,:CLASS]==classname, eachparticle(zep))
     return shuffle ? Random.shuffle(res) : res
 end
 
@@ -564,9 +582,9 @@ function Base.filter(filt::Function, zep::Zeppelin)
 end
 
 const MORPH_COLS = [ :NUMBER, :XABS, :YABS, :DAVG, :DMIN, :DMAX, :DPERP, :PERIMETER, :AREA ]
-const CLASS_COLS = [ :CLASS, :CLASSNAME, :VERIFIEDCLASS, :IMPORTANCE ]
+const CLASS_COLS = [ :CLASS, :VERIFIEDCLASS, :IMPORTANCE ]
 const COMP_COLS = [ :FIRSTELM, :FIRSTPCT, :SECONDELM, :SECONDPCT, :THIRDELM,
-    :THIRDPCT, :FOURTHELM, :FOURTHPCT, :COUNTS, :CLASSNAME ]
+    :THIRDPCT, :FOURTHELM, :FOURTHPCT, :COUNTS ]
 const ALL_ELMS = convert.(Symbol, elements[1:95])
 
 allelms(zep::Zeppelin) = intersect(ALL_ELMS, names(zep.data))
@@ -574,7 +592,7 @@ allelms(zep::Zeppelin) = intersect(ALL_ELMS, names(zep.data))
 const ALL_COMPOSITIONAL_COLUMNS = ( :FIRST, :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM, :FIRSTELM, :SECONDELM, :THIRDELM,
    :FOURTHELM, :COUNTS1, :COUNTS2, :COUNTS3, :COUNTS4, :FIRSTPCT, :SECONDPCT, :THIRDPCT, :FOURTHPCT, :TYPE4ET, :COUNTS,
    :FITQUAL, :COMPHASH )
-const ALL_CLASS_COLS = ( :CLASS, :CLASSNAME, :VERIFIEDCLASS, :IMPORTANCE )
+const ALL_CLASS_COLS = ( :CLASS, :VERIFIEDCLASS, :IMPORTANCE )
 
 RJLG_ZEPPELIN=format"RJLG Zeppelin"
 

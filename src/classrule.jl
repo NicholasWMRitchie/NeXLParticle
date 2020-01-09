@@ -49,7 +49,7 @@ Classify the rows in `zep`, row-by-row by calling the applying the `OrderedRuleS
 Zeppelin object.
 """
 function classify(zep::Zeppelin, sr::OrderedRuleSet)::Zeppelin
-    cat = categorical(append!(classnames(sr), ["Other"]), false, ordered = true) # set up the levels
+    cat = categorical(append!(classnames(sr), ["Other", "Missing"]), false, ordered = true) # set up the levels
     cat = cat[1:0] # delete the data but retain the levels
     errcx = 0
     missingElms = Dict(s => 0.0 for s in filter(
@@ -59,18 +59,21 @@ function classify(zep::Zeppelin, sr::OrderedRuleSet)::Zeppelin
     for row in eachparticle(zep)
         try
             input = Dict(n => zep.data[row, n] for n in names(zep.data))
-            merge!(input, missingElms)
-            push!(cat, classify(sr, input))
-        catch err
-            errcx += 1
-            if errcx == 1
-                levels!(cat, ["!!ERROR!!"])
+            if all(map(v->!ismissing(v),values(input)))
+                merge!(input, missingElms)
+                push!(cat, classify(sr, input))
+            else
+                push!(cat, "Missing")
             end
-            push!(cat, "!!ERROR!!")
-            if errcx <= 4
-                print("ERROR$errcx: ")
+        catch err
+            push!(cat, "Other")
+            if (errcx += 1) <= 4
+                print("ERROR[$errcx]: ")
                 showerror(stdout, err)
                 println()
+                for st in stacktrace(catch_backtrace())[1:3]
+                    println(st)
+                end
             end
         end
     end
@@ -86,25 +89,12 @@ end
 
 const NullRules = OrderedRuleSet("Null", ("Unclassified", inp -> true) )
 
-const GSRRules = OrderedRuleSet(
-    "GSR",
-    ("GSR1", inp -> (inp[:PB] > 5) && (inp[:BA] > 5) && (inp[:SB] > 5) && (inp[:PB] + inp[:BA] + inp[:SB] > 50)),
-    ("GSR2", inp -> (inp[:PB] > 1) && (inp[:BA] > 1) && (inp[:SB] > 1)),
-    ("GSR3", inp -> (inp[:PB] > 4) && (inp[:BA] > 5) && (inp[:CA] > 5) && (inp[:SN] > 5) && (inp[:SI] > 5)),
-    ("GSR4", inp -> (inp[:GD] > 5) && (inp[:TI] > 1) && (inp[:ZN] > 1)),
-    ("GSR5", inp -> (inp[:GA] > 5) && (inp[:CU] > 1) && (inp[:SN] > 1)),
-    ("Pb-Ba", inp -> (inp[:PB] > 5) && (inp[:BA] > 5) && (inp[:PB] + inp[:BA] > 50)),
-    ("Pb-Sb", inp -> (inp[:PB] > 5) && (inp[:SB] > 5) && (inp[:PB] + inp[:SB] > 50)),
-    ("Ba-Sb", inp -> (inp[:BA] > 5) && (inp[:SB] > 5) && (inp[:BA] + inp[:SB] > 50)),
-    ("Sr-bearing", inp -> inp[:SR] > 10),
-);
-
 const BaseRules = OrderedRuleSet(
     "Base",
     ("LowCounts", inp -> inp[:COUNTS] < 2000),
     (
      "Maraging",
-     inp -> (inp[:FIRSTELM] == 26) &&
+     inp -> (inp[:FIRSTELM] == n"Fe") &&
             (inp[:NI] > 5) && (inp[:CO] > 2) && (inp[:FE] + inp[:NI] + inp[:CO] + inp[:MO] > 80.0),
     ),
     ("Quartz-like", inp -> inp[:SI] > 80),
@@ -140,19 +130,19 @@ const BaseRules = OrderedRuleSet(
     ),
     (
      "Al-Cu alloy (2XXX)",
-     inp -> (inp[:AL] > 60) && (inp[:SECONDELM] == 29) && (inp[:CU] > 3) && (inp[:AL] + inp[:CU] > 90),
+     inp -> (inp[:AL] > 60) && (inp[:SECONDELM] == n"Cu") && (inp[:CU] > 3) && (inp[:AL] + inp[:CU] > 90),
     ),
     (
      "Al-Mn alloy (3XXX)",
-     inp -> (inp[:AL] > 60) && (inp[:SECONDELM] == 25) && (inp[:MN] > 3) && (inp[:AL] + inp[:MN] > 90),
+     inp -> (inp[:AL] > 60) && (inp[:SECONDELM] == n"Mn") && (inp[:MN] > 3) && (inp[:AL] + inp[:MN] > 90),
     ),
     (
      "Al-Si alloy (4XXX)",
-     inp -> (inp[:AL] > 80) && (inp[:SECONDELM] == 14) && (inp[:SI] > 1) && (inp[:AL] + inp[:SI] > 90),
+     inp -> (inp[:AL] > 80) && (inp[:SECONDELM] == n"Si") && (inp[:SI] > 1) && (inp[:AL] + inp[:SI] > 90),
     ),
     (
      "Al-Mg alloy (5XXX)",
-     inp -> (inp[:FIRSTELM] == 13) && (inp[:SECONDELM] == 12) && (inp[:MG] > 5) && (inp[:AL] + inp[:MG] > 80),
+     inp -> (inp[:FIRSTELM] == n"Al") && (inp[:SECONDELM] == n"Mg") && (inp[:MG] > 5) && (inp[:AL] + inp[:MG] > 80),
     ),
     (
      "Al-Si-Mg (6XXX)",
@@ -161,9 +151,9 @@ const BaseRules = OrderedRuleSet(
     ),
     (
      "Al-Zn alloy (7XXX)",
-     inp -> (inp[:AL] > 80) && (inp[:SECONDELM] == 30) && (inp[:ZN] > 2) && (inp[:AL] + inp[:ZN] > 90),
+     inp -> (inp[:AL] > 80) && (inp[:SECONDELM] == n"Zn") && (inp[:ZN] > 2) && (inp[:AL] + inp[:ZN] > 90),
     ),
-    ("Al-Fe alloy", inp -> (inp[:AL] > 80) && (inp[:SECONDELM] == 26) && (inp[:FE] > 2) && (inp[:AL] + inp[:FE] > 90)),
+    ("Al-Fe alloy", inp -> (inp[:AL] > 80) && (inp[:SECONDELM] == n"Fe") && (inp[:FE] > 2) && (inp[:AL] + inp[:FE] > 90)),
     ("Aluminosilicate", inp -> (inp[:AL] > 30) && (inp[:SI] > 10) && (inp[:AL] + inp[:SI] > 80)),
     ("Zircon", inp -> (inp[:ZR] > 20) && (inp[:ZR] + inp[:SI] > 80)),
     (
@@ -181,17 +171,17 @@ const BaseRules = OrderedRuleSet(
     ("Fe-Cr stainless", inp -> (inp[:FE] > 50) && (inp[:CR] > 5) && (inp[:NI] < 3) && (inp[:FE] + inp[:CR] > 90)),
     (
      "Fe-Cr-Ni Stainless",
-     inp -> inp[:FIRSTELM] == 26 && (inp[:CR] > 5) && (inp[:NI] > 5) && (inp[:FE] + inp[:CR] + inp[:NI] > 80),
+     inp -> (inp[:FIRSTELM] == n"Fe") && (inp[:CR] > 5) && (inp[:NI] > 5) && (inp[:FE] + inp[:CR] + inp[:NI] > 80),
     ),
     ("Fe-Ni stainless", inp -> (inp[:FE] > 50) && (inp[:NI] > 10) && (inp[:FE] + inp[:NI] > 90)),
     ("Iron oxide", inp -> (inp[:FE] > 80) && (inp[:O] > 10)),
     ("Iron", inp -> inp[:FE] > 80),
     ("Calcite", inp -> (inp[:CA] > 80) && (inp[:O] > 5)),
     ("Zinc", inp -> inp[:ZN] > 80),
-    ("Silicate", inp -> inp[:FIRSTELM] == 14),
+    ("Silicate", inp -> inp[:FIRSTELM] == n"Si" ),
     (
      "Anglesite",
-     inp -> (inp[:FIRSTELM] == 82) && (inp[:SECONDELM] == 16) && (inp[:PB] + inp[:S] > 80) && (inp[:O] > 5),
+     inp -> (inp[:FIRSTELM] == n"Pb") && (inp[:SECONDELM] == n"S") && (inp[:PB] + inp[:S] > 80) && (inp[:O] > 5),
     ),
     ("Hashemite", inp -> (inp[:BA] > 20) && (inp[:CR] > 20) && (inp[:BA] + inp[:CR] > 80) && (inp[:O] > 5)),
     ("Barite", inp -> (inp[:BA] > 40) && (inp[:S] > 10) && (inp[:BA] + inp[:S] > 80) && (inp[:O] > 5)),
@@ -226,7 +216,7 @@ const BaseRules = OrderedRuleSet(
     ("Iron-bearing", inp -> (inp[:FE] > 50)),
     ("Ca-bearing", inp -> inp[:CA] > 50),
     ("Other Silicate", inp -> (inp[:SI] > 20) && (inp[:AL] + inp[:FE] + inp[:CA] + inp[:SI] > 80)),
-    ("Gold-Silver alloy", inp -> (inp[:FIRSTELM] == 79) && (inp[:SECONDELM] == 47) && (inp[:AU] + inp[:AG] > 80)),
+    ("Gold-Silver alloy", inp -> (inp[:FIRSTELM] == n"Au") && (inp[:SECONDELM] == n"Ag") && (inp[:AU] + inp[:AG] > 80)),
     ("Gold - other", inp -> inp[:AU] > 80),
     ("Tin", inp -> inp[:SN] > 80),
     ("Celestine", inp -> (inp[:SR] > 40) && (inp[:S] > 10) && (inp[:SR] + inp[:S] > 80) && (inp[:O] > 5)),

@@ -2,6 +2,7 @@ using CSV
 using DataStructures
 using Random
 using StatsBase
+using DataAPI
 
 Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 
@@ -181,17 +182,70 @@ end
 
 eachparticle(zep::Zeppelin) = 1:size(zep.data, 1)
 
-function describe(zep::Zeppelin, allClasses=false)
-    ic = findfirst(col->col==:CLASS,names(zep.data))
-    cns, cxs = String[ "All" ], Int[ size(zep.data,1) ]
-    if !isnothing(ic)
-        for (cn, cx) in StatsBase.countmap(zep[:,:CLASS])
-            push!(cns, string(cn))  # Class name
-            push!(cxs, cx) # Count
+function DataAPI.describe(zeps::AbstractArray{Zeppelin}; dcol=:DAVG, nelms=2)
+    dfs = DataFrame[]
+    for zep in zeps
+        df=describe(zep,dcol=dcol,nelms=nelms)
+        insertcols!(df, 1, :Dataset=>[zep.header["DESCRIPTION"] for _ in 1:size(df,1)])
+        push!(dfs, df)
+    end
+    return vcat(dfs...)
+end
+
+function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
+    function sortedstats(rows)
+        tmp = [ ( elm, summarystats(zep[rows,convert(Symbol, elm)])) for elm in zep.elms ]
+        return sort!(tmp, lt=(v1,v2)->isless(v1[2].mean,v2[2].mean),rev=true)
+    end
+    cnelms = min(length(zep.elms), nelms)
+    ds = summarystats(zep[:,dcol])
+    clss = String["All"]
+    szs = Int[size(zep.data,1)]
+    minds = Float64[ ds.min ]
+    medds = Float64[ ds.median ]
+    maxds = Float64[ ds.max ]
+    sbcm = StatsBase.countmap(zep[:,:CLASS])
+    for (cn, cx) in sbcm
+        push!(clss,string(cn))
+        push!(szs, cx)
+        rows = rowsClass(zep,cn)
+        @assert length(rows)==cx
+        ds = summarystats(zep[rows,dcol])
+        push!(minds, ds.min)
+        push!(medds, ds.median)
+        push!(maxds, ds.max)
+    end
+    dfres = DataFrame(Symbol("Class")=>clss, Symbol("Count")=>szs,Symbol("Min[$dcol]")=>minds, Symbol("Median[$dcol]")=>medds, Symbol("Max[$dcol]")=>maxds)
+    # Add All elemental row
+    ss = sortedstats(eachparticle(zep))
+    elmdfs=DataFrame[ ]
+    uem, uef = Union{Element,Missing}, Union{Float64,Missing}
+    for ne in 1:cnelms
+        cols = Symbol.( [ "Elm[$ne]", "Min[$ne]", "Median[$ne]", "Max[$ne]" ])
+        sst = ss[ne][2]
+        push!(elmdfs, DataFrame(cols[1]=>uem[ ss[ne][1] ], cols[2]=>uef[sst.min], cols[3]=>uef[sst.median], cols[4]=>uef[sst.max]))
+    end
+    for (cn, cx) in sbcm
+        try
+            ss = sortedstats(rowsClass(zep, cn))
+            for ne in 1:cnelms
+                sst = ss[ne][2]
+                push!(elmdfs[ne], [ ss[ne][1], sst.min, sst.median, sst.max ])
+            end
+        catch
+            for ne in 1:cnelms
+                push!(elmdfs[ne], [ missing, missing, missing, missing ])
+            end
         end
     end
-    return sort!(DataFrame(Class=cns, Count=cxs),(:Count, :Class),rev=true)
+    for elmdf in elmdfs
+        for col in names(elmdf)
+            insertcols!(dfres, size(dfres,2)+1, col=>elmdf[:,col])
+        end
+    end
+    return dfres # sort!(res,(:Count, :Class), rev=true)
 end
+
 
 """
     zep[123] # where zep is a Zeppelin

@@ -627,12 +627,12 @@ end
 """
     Base.filter(filt::Function, zep::Zeppelin)
 
-Use a function of the form `filt(zep, row)::Bool` to filter a Zeppelin dataset returning a new Zeppelin dataset
+Use a function of the form `filt(row)::Bool` to filter a Zeppelin dataset returning a new Zeppelin dataset
 with only the rows for which the function evaluated true.
 """
 function Base.filter(filt::Function, zep::Zeppelin)
-    rows = filter(row->filt(zep, row), eachparticle(zep))
-    return Zeppelin(zep.headerfile, copy(header), data[rows,:])
+    rows = filter(filt, eachrow(zep.data))
+    return Zeppelin(zep.headerfile, copy(zep.header), zep.data[rows,:])
 end
 
 const MORPH_COLS = [ :NUMBER, :XABS, :YABS, :DAVG, :DMIN, :DMAX, :DPERP, :PERIMETER, :AREA ]

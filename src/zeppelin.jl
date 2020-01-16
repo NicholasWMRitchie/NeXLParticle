@@ -166,11 +166,7 @@ end
 
 NeXLCore.elms(zep::Zeppelin) = zep.elms
 
-function header(zep::Zeppelin)
-    keep(k) = !mapreduce(ty -> startswith(k, uppercase(ty)), (a, b) -> a || b, ("CLASS", "ELEM", "MAG"))
-    kys = filter(keep, keys(zep.header))
-    return DataStructures.SortedDict(filter(kv -> kv[1] in kys, zep.header))
-end
+header(zep::Zeppelin) = SortedDict(zep.header)
 
 data(zep::Zeppelin; sortCol=:None, rev=false) =
     sortCol≠:None ? sort(zep.data, sortCol, rev=rev) : zep.data
@@ -629,11 +625,41 @@ end
 
 Use a function of the form `filt(row)::Bool` to filter a Zeppelin dataset returning a new Zeppelin dataset
 with only the rows for which the function evaluated true.
+
+
+Example:
+
+    gsr = filter(row->startswith( String(row[:CLASS]), "GSR."), zep)
+
 """
 function Base.filter(filt::Function, zep::Zeppelin)
-    rows = filter(filt, eachrow(zep.data))
+    rows = filter(r->filt(zep.data[r,:]), eachparticle(zep))
     return Zeppelin(zep.headerfile, copy(zep.header), zep.data[rows,:])
 end
+
+"""
+    multiternary(
+        zep::Zeppelin;
+        omit = [ n"C", n"O" ],
+        palette = TernPalette)
+
+Plot the elemental data in `zep` to a multi-ternary diagram.
+"""
+function multiternary(
+        zep::Zeppelin;
+        omit = [ n"C", n"O" ],
+        palette = TernPalette)
+    # Determine which elements to plot...
+    df=DataFrame(Elm=Symbol[], Mean=Float64[])
+    for elm in filter(elm->!(elm in omit), zep.elms)
+        sy = convert(Symbol, elm)
+        push!(df, [sy, mean(zep.data[:,sy])])
+    end
+    sort!(df, :Mean, rev=true)
+    elms = df[:,:Elm][1:min(size(df,1),6)]
+    NeXLParticle.multiternary(zep.data, elms, :CLASS, title=zep.header["DESCRIPTION"], palette=palette, norm=100.0)
+end
+
 
 const MORPH_COLS = [ :NUMBER, :XABS, :YABS, :DAVG, :DMIN, :DMAX, :DPERP, :PERIMETER, :AREA ]
 const CLASS_COLS = [ :CLASS, :VERIFIEDCLASS, :IMPORTANCE ]

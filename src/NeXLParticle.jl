@@ -40,6 +40,11 @@ export GSRRules
 export BaseRules
 export NullRules
 
+include("multiternary.jl")
+export multiternary
+export TernPalette
+export TernColorblind
+
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")
     @info "Loading Gadfly support into NeXLParticle."

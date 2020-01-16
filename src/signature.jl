@@ -86,6 +86,7 @@ function signature( #
     res = Dict(elm => kzs[elm] / onorm for elm in special)
     notspecial = filter(elm -> !(elm in special), keys(kzs))
     norm = sum(value(kzs[elm]) for elm in notspecial)
+    norm = norm > 0.0 ? norm : 1.0 # Rarely all elements are zero...
     merge!(res, Dict(elm => kzs[elm] / norm for elm in notspecial))
     return res
 end

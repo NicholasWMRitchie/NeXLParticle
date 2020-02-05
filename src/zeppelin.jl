@@ -382,7 +382,8 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
     headeritems["ELEMENTS"] = "$(length(zep.elms))"
     if :CLASS in names(zep.data)
         clsdata=zep.data[:,:CLASS]
-        for (i,cls) in enumerate(clsdata.pool.index[2:end])
+        for (i,cls) in enumerate(clsdata.pool.index[1:end])
+            # println("CLASS$(i-1) => $cls")
             headeritems["CLASS$(i-1)"]=cls
             headeritems["CLASSES"]="$(i+1)"
         end
@@ -406,7 +407,7 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
             select!(zd,Not(ic))
             et = eltype(coldata)
             if et == CategoricalArrays.CategoricalString{UInt32}
-                insertcols!(zd, ic, col=>[ coldata.refs[i]-2  for i in eachindex(coldata) ]) # CLASS
+                insertcols!(zd, ic, col=>[ coldata.refs[i]-1  for i in eachindex(coldata) ]) # CLASS
             else
                 insertcols!(zd, ic, col=>[ coldata.refs[i]  for i in eachindex(coldata) ]) # Element
             end

@@ -255,7 +255,7 @@ Base.getindex(zep::Zeppelin, rows, cols) = Base.getindex(zep.data, rows, cols)
 Base.lastindex(zep::Zeppelin, axis::Integer) = Base.lastindex(zep.data, axis)
 
 # Replace the default in PeriodicTable because it is too verbose...
-Base.show(io::IO, elm::Element) = print(io, elm.symbol)
+# Base.show(io::IO, elm::Element) = print(io, elm.symbol)
 
 """
     spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ext::AbstractString=".tif")

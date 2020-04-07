@@ -33,7 +33,7 @@ struct Signature
     fluorescence::Type{<:FluorescenceCorrection}
     kratioopt::KRatioOptimizer
 
-    Signature(mc = XPPCorrection, fc = ReedFluorescence, kro = SimpleKRatioOptimizer(1.3)) =
+    Signature(mc = XPP, fc = ReedFluorescence, kro = SimpleKRatioOptimizer(1.3)) =
         new(Dict{CharXRay,AbstractFloat}(), mc, fc, kro)
 end
 
@@ -63,11 +63,12 @@ un-normalized.
 function signature( #
     sig::Signature,
     krs::Vector{KRatio},
-    special::Set{Element}
+    special::AbstractArray{Element},
+    drop::AbstractArray{Element}
 )::Dict{Element,<:AbstractFloat}
     kzs = Dict{Element,AbstractFloat}()
     #Scale the k-ratios relative to a pure element...
-    for kr in optimizeks(sig.kratioopt, krs)
+    for kr in filter(k->!(k.element in drop), optimizeks(sig.kratioopt, krs))
         # k_{unk,pure} = (I_{unk}/I_{std})*(I_{std}/I_{pure}) = kr.kratio*k(std,pure)
         kstdpure = isapprox(kr.standard[kr.element], 1.0, atol = 0.001) ? 1.0 : #
                kpure(
@@ -84,7 +85,7 @@ function signature( #
     end
     onorm = sum(value(kzs[elm]) for elm in keys(kzs))
     res = Dict(elm => kzs[elm] / onorm for elm in special)
-    notspecial = filter(elm -> !(elm in special), keys(kzs))
+    notspecial = filter(elm -> !(elm in special) , keys(kzs))
     norm = sum(value(kzs[elm]) for elm in notspecial)
     norm = norm > 0.0 ? norm : 1.0 # Rarely all elements are zero...
     merge!(res, Dict(elm => kzs[elm] / norm for elm in notspecial))
@@ -162,7 +163,7 @@ function _quant(
             unk[:ProbeCurrent], unk[:LiveTime] = get(unk, :ProbeCurrent, 1.0), get(unk, :LiveTime, 1.0)
             unk[:BeamEnergy], unk[:TakeOffAngle] = get(unk, :BeamEnergy, e0), get(unk, :TakeOffAngle, toa)
             # Fit, cull and then compute the particle signature...
-            res = fit(FilteredUnknownW, unk, filt, filtrefs, true)
+            res = NeXLSpectrum.fit(FilteredUnknownW, unk, filt, filtrefs, true)
             counts[ir] = NeXLSpectrum.characteristiccounts(res, ignore)
             if writeResidual
                 filename = spectrumfilename(zep, row, "Residual", ".msa")
@@ -178,7 +179,7 @@ function _quant(
     nfirst=min(4, length(newcols)-length(special))
     felm = Array{Union{Element,Missing}}(missing, length(rows), 4)
     fsig = Array{Union{UncertainValue,Missing}}(missing, length(rows), 4)
-    sigx = Signature(XPPCorrection, ReedFluorescence, SimpleKRatioOptimizer(1.3))
+    sigx = Signature(XPP, ReedFluorescence, SimpleKRatioOptimizer(1.3))
     for ir in eachindex(rows)
         krv = krvs[ir]
         if !ismissing(krv)

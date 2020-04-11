@@ -9,7 +9,7 @@ Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 struct Zeppelin
     headerfile::String
     header::Dict{String,String}
-    elms::Array{Element}
+    elms::Vector{Element}
     data::DataFrame
 
     function Zeppelin( hdzfilename::String)
@@ -178,7 +178,7 @@ end
 
 eachparticle(zep::Zeppelin) = 1:size(zep.data, 1)
 
-function DataAPI.describe(zeps::AbstractArray{Zeppelin}; dcol=:DAVG, nelms=2)
+function DataAPI.describe(zeps::AbstractVector{Zeppelin}; dcol=:DAVG, nelms=2)
     dfs = DataFrame[]
     for zep in zeps
         df=describe(zep,dcol=dcol,nelms=nelms)

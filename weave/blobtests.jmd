@@ -1,0 +1,108 @@
+Load the libraries
+```julia
+using Images
+using ImageSegmentation
+using ImageMorphology
+using ImageFiltering
+using Colors
+using NeXLParticle
+using DataStructures
+```
+Load a test image
+```julia
+spec=readAspexTIFF("C:\\Users\\nritchie\\Desktop\\EGOS Only\\00008.tif",withImgs=true)
+bse, se = spec[:Image][:,:,1], spec[:Image][:,:,2]
+display(se)
+```
+Invert
+```julia
+display(Gray.(1.0 .- se))
+```
+Apply a Gaussian filter
+```julia
+f1=Kernel.gaussian(2)
+display(imfilter(se,f1))
+```
+Apply a custom filter
+```julia
+e,c = -1.0/32.0, 0.25
+f2 = centered([ e e e e e e; e e e e e e; e e c c e e; e e c c e e; e e e e e e; e e e e e e])
+display(imfilter(se,f2))
+```
+Difference of Gaussian filter
+```julia
+display(imfilter(se,Kernel.DoG(3.0)))
+```
+```julia
+display(imfilter(se,Kernel.ando3()))
+```
+```julia
+display(imfilter(se,Kernel.LoG(1)))
+```
+```julia
+display(imfilter(se,Kernel.LoG(10.0)))
+```
+Erode the image
+```julia
+display(erode(se))
+```
+```julia
+seeds = [ (CartesianIndex(10,10),1), (CartesianIndex(34, 61),2), (CartesianIndex(50, 43),3), (CartesianIndex(79,47),4), (CartesianIndex(91,70),5), (CartesianIndex(105,53),6) ]
+markers=zeros(UInt8, size(se))
+for (ci,m) in seeds
+  markers[ci]=m
+end
+display(Gray.(40 .* markers ./ 255))
+segments=watershed(se, markers)
+display(Gray.(map(i->42*i/255, labels_map(segments))))
+```
+
+```julia
+segments=watershed(erode(se), markers)
+display(Gray.(map(i->42*i/255, labels_map(segments))))
+```
+
+```julia
+function build_filter(n,m)
+  r=zeros(Float64, n, n)
+  fill!(r, -1.0/(n^2-m^2))
+  fill!(view(r,(n-m)÷2:(n-m)÷2+m,(n-m)÷2:(n-m)÷2+m), 1.0/(m^2))
+  return centered(r)
+end
+
+display(imfilter(se, build_filter(31,15)))
+```
+
+```julia
+display(tophat(se))
+```
+
+```julia
+blobs=blob(se, x->x>0.3)
+bl1=NeXLParticle.image(blobs[1],se)
+display(bl1)
+```
+
+```julia
+gbl1=imfilter(bl1,Kernel.gaussian(1.0))
+sw=NeXLParticle.soille_watershed(gbl1, gbl1 .> 200/255, true)
+display(Gray.(sw ./ 255))
+```
+
+```julia
+log1=imfilter(bl1,Kernel.LoG(1.))
+dl1=Gray.(dilate(log1) .> 0.01)
+sw1=NeXLParticle.soille_watershed(dl1, dl1 .== 0.0, true)
+display(Gray.(sw1 .> 0))
+```
+
+```julia
+log1=imfilter(bl1,Kernel.LoG(1.))
+dl1=Gray.(dilate(log1) .> 0.01)
+sw1=Gray.(NeXLParticle.soille_watershed(dl1, dl1 .== 0.0, true)/255)
+ah1=adjust_histogram(sw1, LinearStretching(dst_minval = 0, dst_maxval = 1))
+```
+
+```julia
+Gray.(NeXLParticle.insidemask(ah1))
+```

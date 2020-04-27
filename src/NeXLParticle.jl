@@ -45,6 +45,11 @@ export multiternary
 export TernPalette
 export TernColorblind
 
+include("imageprocess.jl")
+export Blob
+export blob
+export soille_watershed
+
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")
     @info "Loading Gadfly support into NeXLParticle."

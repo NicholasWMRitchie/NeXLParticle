@@ -40,8 +40,8 @@ end
 function kpure(sig::Signature, std::Material, elm::Element, lines::Vector{CharXRay}, stdE0, unkE0, stdθ, unkθ)::AbstractFloat
     res = get(sig.kpure, brightest(lines), -1.0)
     if res == -1.0
-        unkzaf = ZAF(sig.matrix, sig.fluorescence, std, lines, stdE0)
-        stdzaf = ZAF(sig.matrix, sig.fluorescence, pure(elm), lines, unkE0)
+        unkzaf = zafcorrection(sig.matrix, sig.fluorescence, Coating, std, lines, stdE0)
+        stdzaf = zafcorrection(sig.matrix, sig.fluorescence, Coating, pure(elm), lines, unkE0)
         res = k(unkzaf, stdzaf, stdθ, unkθ)
         sig.kpure[brightest(lines)] = res
     end
@@ -125,23 +125,10 @@ function _quant(
     sortedbysig(newcols, row) =
          sort(collect(zip(newcols, row)),lt=(i1,i2)->!isless(i1[1]==n"O" ? 0.0 : i1[2],i2[1]==n"O" ? 0.0 : i2[2]))
     # Build the filtered references
-    filt = buildfilter(NeXLSpectrum.GaussianFilter, det)
-    filtrefs = FilteredReference[]
-    e0, toa = beamenergy(zep), NaN64
+    filt = buildfilter(det)
     # Create filtered references.  Not worth threading.
-    for (elm,ref) in refs
-        if elm > n"Ba"
-            lines = union(ltransitions, mtransitions)
-        elseif elm > n"Ca"
-            lines = union(ktransitions, ltransitions)
-        else
-            lines = ktransitions
-        end
-        cfs = NeXLSpectrum.charFeature(elm, Tuple(lines), maxE = 0.9 * e0)
-        fr = filter(ref, det, cfs, filt, 1.0 / dose(ref))
-        append!(filtrefs, fr)
-        toa = isnan(toa) ? ref[:TakeOffAngle] : toa
-    end
+    filtrefs=mapreduce((elm,ref)->filterreference(filt, ref, elm, ref[:Composition]), append!, refs)
+    e0, toa = beamenergy(zep), sameproperty(ref[2] for ref in refs, :TakeOffAngle)
     # Create a list of columns (by element)
     newcols = sort(collect(filter(elm -> !(elm in strip), keys(refs))))
     quant = Array{Union{UncertainValue,Missing}}(missing, length(rows), length(newcols))
@@ -163,7 +150,7 @@ function _quant(
             unk[:ProbeCurrent], unk[:LiveTime] = get(unk, :ProbeCurrent, 1.0), get(unk, :LiveTime, 1.0)
             unk[:BeamEnergy], unk[:TakeOffAngle] = get(unk, :BeamEnergy, e0), get(unk, :TakeOffAngle, toa)
             # Fit, cull and then compute the particle signature...
-            res = NeXLSpectrum.fit(FilteredUnknownW, unk, filt, filtrefs, true)
+            res = NeXLSpectrum.fit(unk, filt, filtrefs, true)
             counts[ir] = NeXLSpectrum.characteristiccounts(res, ignore)
             if writeResidual
                 filename = spectrumfilename(zep, row, "Residual", ".msa")
@@ -180,17 +167,14 @@ function _quant(
     felm = Array{Union{Element,Missing}}(missing, length(rows), 4)
     fsig = Array{Union{UncertainValue,Missing}}(missing, length(rows), 4)
     sigx = Signature(XPP, ReedFluorescence, SimpleKRatioOptimizer(1.3))
-    for ir in eachindex(rows)
-        krv = krvs[ir]
-        if !ismissing(krv)
-            sig = signature(sigx, krv, special) # Not thread safe...
-            quant[ir, :] = map(elm -> 100.0 * sig[elm], newcols)
-            s2 = copy(sig)
-            foreach(j->delete!(s2,j), special) # Special can't be a FIRSTELM, ...
-            firstElms = topN(s2, nfirst)
-            felm[ir, :] = map(j->j<=nfirst ? firstElms[j].first : missing, 1:4)
-            fsig[ir, :] = map(j->j<=nfirst ? 100.0 * firstElms[j].second : missing, 1:4)
-        end
+    for ir in filter(ir->!ismissing(krvs[ir]), eachindex(rows))
+        sig = signature(sigx, krvs[ir], special) # Not thread safe...
+        quant[ir, :] = map(elm -> 100.0 * sig[elm], newcols)
+        s2 = copy(sig)
+        foreach(j->delete!(s2,j), special) # Special can't be a FIRSTELM, ...
+        firstElms = topN(s2, nfirst)
+        felm[ir, :] = map(j->j<=nfirst ? firstElms[j].first : missing, 1:4)
+        fsig[ir, :] = map(j->j<=nfirst ? 100.0 * firstElms[j].second : missing, 1:4)
     end
     fourelms = DataFrame( #
         FIRSTELM= felm[:,1], FIRSTPCT = value.(fsig[:,1]),

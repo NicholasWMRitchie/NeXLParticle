@@ -3,6 +3,7 @@ using DataStructures
 using Random
 using StatsBase
 using DataAPI
+using StringEncodings
 
 Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 
@@ -10,6 +11,7 @@ struct Zeppelin
     headerfile::String
     header::Dict{String,String}
     elms::Vector{Element}
+    classes::Dict{String, String}
     data::DataFrame
 
     function Zeppelin( hdzfilename::String)
@@ -33,6 +35,45 @@ end
 Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.data))
 
 function loadZep( hdzfilename::String)
+    function _massagehdz(header)
+        res = copy(header)
+        foreach(hi -> if haskey(header, hi) delete!(res, hi) end, ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ))
+        foreach(f->if startswith(f,"ELEM") delete!(res,f) end, keys(header))
+        foreach(f->if startswith(f,"CLASS") delete!(res,f) end, keys(header))
+        return res
+    end
+    # Mostly converts columns to categorical as desired...
+    function _massagepxz(header, pxz)::DataFrame
+        res = copy(pxz)
+        sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
+        sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
+        clsnames = append!(["--None--"], map(c -> header[c], sortedkeys))
+        for col in (:CLASS, :VERIFIED_CLASS)
+            ic = findfirst(nm->nm==col, names(res))
+            if !isnothing(ic)
+                cls = categorical(Union{String,Missing}[ clsnames... ], ordered=true)[1:0] # empty but with correct levels
+                foreach(name->push!(cls, name), map(cl -> get(clsnames, convert(Int, cl) + 2, "####"), pxz[:, col]))
+                select!(res, Not(ic))
+                insertcols!(res, ic, col=>cls)
+            end
+        end
+        for col in ( :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM)
+            ic = findfirst(nm->nm==col, names(res))
+            if !isnothing(ic)
+                fee=categorical( Union{Element,Missing}[ elements[1:95]...],false,ordered=true)[1:0]
+                foreach(z->push!(fee, z>0 ? elements[z] : missing), pxz[:,col])
+                select!(res, Not(ic))
+                insertcols!(res, ic, col=>fee)
+            end
+        end
+        for col in ( :XDAC, :YDAC, :TYPE_4ET_, :TYPE4ET )
+            ic = findfirst(nm->nm==col, names(res))
+            if !isnothing(ic)
+                select!(res, Not(ic))
+            end
+        end
+        return res
+    end
     remapcolumnnames = Dict{String,String}(
         "PART#" => "NUMBER",
         "PARTNUM" => "NUMBER",
@@ -87,16 +128,18 @@ function loadZep( hdzfilename::String)
     )
     columnnames(cols) = uppercase.(map(cn -> get(remapcolumnnames, cn, cn), map(c -> c[1], cols)))
     header, columns, hdr = Dict{String,String}(), [], true
-    for line in readlines( hdzfilename)
-        if hdr
-            p = findfirst(c -> c == '=', line)
-            if !isnothing(p)
-                (k, v) = line[1:p-1], line[p+1:end]
-                header[k] = v
-                hdr = !isequal(uppercase(k), "PARTICLE_PARAMETERS")
+    open(hdzfilename, enc"WINDOWS-1252","r") do f
+        for line in readlines(f)
+            if hdr
+                p = findfirst(c -> c == '=', line)
+                if !isnothing(p)
+                    (k, v) = line[1:p-1], line[p+1:end]
+                    header[k] = v
+                    hdr = !isequal(uppercase(k), "PARTICLE_PARAMETERS")
+                end
+            else
+                push!(columns, string.(strip.(split(line, "\t"))))
             end
-        else
-            push!(columns, string.(strip.(split(line, "\t"))))
         end
     end
     pxz = CSV.File(
@@ -108,48 +151,8 @@ function loadZep( hdzfilename::String)
         decimal='.'
     ) |> DataFrame
     elms = filter(z -> convert(Symbol, z) in names(pxz), PeriodicTable.elements[1:94])
-    return (_massagehdz(header), elms, _massagepxz(header, pxz))
-end
-
-function _massagehdz(header)
-    res = copy(header)
-    foreach(hi -> if haskey(header, hi) delete!(res, hi) end, ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ))
-    foreach(f->if startswith(f,"ELEM") delete!(res,f) end, keys(header))
-    foreach(f->if startswith(f,"CLASS") delete!(res,f) end, keys(header))
-    return res
-end
-
-# Mostly converts columns to categorical as desired...
-function _massagepxz(header, pxz)::DataFrame
-    res = copy(pxz)
-    sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
-    sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
-    clsnames = append!(["--None--"], map(c -> header[c], sortedkeys))
-    for col in (:CLASS, :VERIFIED_CLASS)
-        ic = findfirst(nm->nm==col, names(res))
-        if !isnothing(ic)
-            cls = categorical(Union{String,Missing}[ clsnames... ], ordered=true)[1:0] # empty but with correct levels
-            foreach(name->push!(cls, name), map(cl -> get(clsnames, convert(Int, cl) + 2, "####"), pxz[:, col]))
-            select!(res, Not(ic))
-            insertcols!(res, ic, col=>cls)
-        end
-    end
-    for col in ( :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM)
-        ic = findfirst(nm->nm==col, names(res))
-        if !isnothing(ic)
-            fee=categorical( Union{Element,Missing}[ elements[1:95]...],false,ordered=true)[1:0]
-            foreach(z->push!(fee, z>0 ? elements[z] : missing), pxz[:,col])
-            select!(res, Not(ic))
-            insertcols!(res, ic, col=>fee)
-        end
-    end
-    for col in ( :XDAC, :YDAC, :TYPE_4ET_, :TYPE4ET )
-        ic = findfirst(nm->nm==col, names(res))
-        if !isnothing(ic)
-            select!(res, Not(ic))
-        end
-    end
-    return res
+    classes = Dict{String, String}(key=>header[key] for key in filter(f->startswith(f, "CLASS") && (f ≠ "CLASSES"),keys(header)))
+    return (_massagehdz(header), elms, classes, _massagepxz(header, pxz))
 end
 
 function Base.show(io::IO, zep::Zeppelin)
@@ -158,34 +161,27 @@ end
 
 function classes(zep::Zeppelin)
     sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
-    return (c -> get(zep.header, c, "")).(sort(
-        collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(zep.header))),
-        lt = sortclasses,
-    ))
+    return (c -> zep.classes[c]).(sort(collect(keys(zep.classes)),lt = sortclasses,))
 end
 
 NeXLCore.elms(zep::Zeppelin) = zep.elms
 
 header(zep::Zeppelin) = SortedDict(zep.header)
 
-data(zep::Zeppelin; sortCol=:None, rev=false) =
-    sortCol≠:None ? sort(zep.data, sortCol, rev=rev) : zep.data
-
-function data(zep::Zeppelin, rows; sortCol=:None, rev=false)
-    res = zep.data[intersect(rows, eachparticle(zep)), :]
-    return sortCol≠:None ? sort(res, sortCol, rev=rev) : res
+function NeXLUncertainties.asa(::Type{DataFrame}, zep::Zeppelin; rows=missing, sortcol=:None, rev=false)
+    res = ismissing(rows) ? res : zep.data[intersect(rows, eachparticle(zep)), :]
+    return sortcol≠:None ? sort(res, sortcol, rev=rev) : res
 end
 
 eachparticle(zep::Zeppelin) = 1:size(zep.data, 1)
 
 function DataAPI.describe(zeps::AbstractVector{Zeppelin}; dcol=:DAVG, nelms=2)
-    dfs = DataFrame[]
-    for zep in zeps
-        df=describe(zep,dcol=dcol,nelms=nelms)
+    function build(zep)
+        df=describe(zep, dcol=dcol, nelms=nelms)
         insertcols!(df, 1, :Dataset=>[zep.header["DESCRIPTION"] for _ in 1:size(df,1)])
-        push!(dfs, df)
+        return df
     end
-    return vcat(dfs...)
+    return vcat(map(z->build(z),zeps))
 end
 
 function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
@@ -204,7 +200,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     for (cn, cx) in sbcm
         push!(clss,string(cn))
         push!(szs, cx)
-        rows = rowsClass(zep,cn)
+        rows = rowsclass(zep,cn)
         @assert length(rows)==cx
         ds = summarystats(zep[rows,dcol])
         push!(minds, ds.min)
@@ -223,7 +219,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     end
     for (cn, cx) in sbcm
         try
-            ss = sortedstats(rowsClass(zep, cn))
+            ss = sortedstats(rowsclass(zep, cn))
             for ne in 1:cnelms
                 sst = ss[ne][2]
                 push!(elmdfs[ne], [ ss[ne][1], sst.min, sst.median, sst.max ])
@@ -473,53 +469,19 @@ function residual(zep::Zeppelin, row::Int, withImgs=false)::Union{Spectrum,Missi
     return res
 end
 
-
 """
-    maxresidual(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}=1:1000000)
-
-Computes the max-residual spectrum from the specified particles by `rows`.  The residual must have been
-previously computed in quantify(zep, ....)
-"""
-function maxresidual(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}})
-    res = maxspectrum(zep, rows, residual)
-    res[:Name] = "MaxResidual"
-    return res
-end
-
-
-"""
-    maxparticle(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}=1:1000000)
+    maxparticle(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}})
+    maxresidual(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}})
 
 Computes the maxparticle spectrum from the specified particles by `rows`.
 """
 function maxparticle(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}})
-    res = maxspectrum(zep, rows, spectrum)
-    res[:Name] = "MaxParticle"
-    return res
-end
-
-
-"""
-    maxspectrum(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}, specfunc::Function)
-
-Computes the maxparticle spectrum from the specified particles by `rows`.
-`specfunc(zep::Zeppelin, row::Int, withImgs::Boolean)`
-"""
-function NeXLSpectrum.maxspectrum(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}, specfunc::Function)
-    maxi(a, b) = collect(max(a[i],b[i]) for i in eachindex(a))
     mp, firstspec = missing, missing
-    for r in rows
-        try
-            spec = specfunc(zep, r, false)
-            if !ismissing(spec)
-                firstspec = ismissing(firstspec) ? spec : firstspec
-                cx = counts(spec, Float64)
-                mp = ismissing(mp) ? cx : maxi(mp, cx)
-            end
-        catch err
-            @info "Failed $(err)"
-            # Ignore it...
-        end
+    for spec in filter(s->!ismissing(s), map(r->spectrum(zep,r,false),rows))
+        @assert spec isa Spectrum
+        firstspec = ismissing(firstspec) ? spec : firstspec
+        cx = NeXLSpectrum.counts(spec)
+        mp = ismissing(mp) ? cx : max.(mp, cx)
     end
     # Now copy it out as a spectrum
     props = copy(firstspec.properties)
@@ -529,84 +491,76 @@ end
 
 
 """
-    rowsMax(zep::Zeppelin, col::Symbol, n=20)
+    maxresidual(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}}=1:1000000)
+
+Computes the max-residual spectrum from the specified particles by `rows`.  The residual must have been
+previously computed in quantify(zep, ....)
+"""
+function maxresidual(zep::Zeppelin, rows::Union{AbstractVector{Int},UnitRange{Int}})
+    mp, firstspec = missing, missing
+    for spec in filter(s->!ismissing(s), map(r->residual(zep,r,false),rows))
+        @assert spec isa Spectrum
+        firstspec = ismissing(firstspec) ? spec : firstspec
+        cx = NeXLSpectrum.counts(spec)
+        mp = ismissing(mp) ? cx : max.(mp, cx)
+    end
+    # Now copy it out as a spectrum
+    props = copy(firstspec.properties)
+    props[:Name] = "MaxResidual"
+    return Spectrum(firstspec.energy, mp, props)
+end
+
+"""
+    rowsmax(zep::Zeppelin, col::Symbol; n::Int=10000000, classname::Union{Missing,AbstractString}=missing)
 
 Returns the row indices associated with the `n` maximum values in the `col` column.
 
 Examples:
 
     # Plot ten largest by :DAVG
-    plot(zep, rowsMax(zep, :DAVG, 10))
+    plot(zep, rowsmax(zep, :DAVG, 10))
     # data from 100 most Iron-rich sorted by DAVG
-    data(zep, rowsMax(zep, :FE, 100), sortCol=:DAVG)
+    asa(DataFrame, zep, rowsmax(zep, :FE, 100), sortCol=:DAVG)
 """
-function rowsMax(zep::Zeppelin, col::Symbol, n::Int=20)
-    d = collect(zip(1:250,zep.data[:,col]))
-    s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
-    return getindex.(s[intersect(eachparticle(zep),1:n)],1)
+function rowsmax(zep::Zeppelin, col::Symbol; n::Int=10000000, classname::Union{Missing,AbstractString}=missing)
+    if ismissing(classname)
+        d = collect(zip(1:250,zep.data[:,col]))
+        s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
+        return getindex.(s[intersect(eachparticle(zep),1:n)],1)
+    else
+        cr = filter(r->zep.data[r,:CLASS]==classname, eachparticle(zep))
+        d = collect(zip(cr, zep.data[cr,col]))
+        s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
+        return getindex.(s[intersect(eachindex(cr),1:n)],1)
+    end
 end
-
 """
-    rowsMin(zep::Zeppelin, col::Symbol, n=20)
+    rowsmin(zep::Zeppelin, col::Symbol; n::Int=10000000, classname::Union{Missing,AbstractString}=missing)
 
 Returns the row indices associated with the `n` minimum values in the `col` column.
 
 Examples:
 
     # Plot ten smallest by :DAVG
-    plot(zep, rowsMin(zep, :DAVG, 10))
+    plot(zep, rowsmin(zep, :DAVG, 10))
     # data from 100 most Iron-rich sorted by DAVG
-    data(zep, rowsMax(zep, :FE, 100), sortCol=:DAVG)
+    asa(DataFrame, zep, rowsmax(zep, :FE, 100), sortCol=:DAVG)
 """
-function rowsMin(zep::Zeppelin, col::Symbol, n::Int=20)
-    d = collect(zip(eachparticle(zep),zep.data[:,col]))
-    s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=false)
-    return getindex.(s[intersect(eachparticle(zep),1:n)],1)
-end
-
-
-"""
-    rowsMax(zep::Zeppelin, col::Symbol, classname::AbstractString, n=20)
-
-Returns the row indices associated with the `n` maximum values in the `col` column that
-are also members of the specified `classname`.
-
-Example:
-
-    # Plot ten largest "Calcite" particles by :DAVG
-    plot(zep, rowsMax(zep, :DAVG, "Calcite", 10))
-"""
-function rowsMax(zep::Zeppelin, col::Symbol, classname::AbstractString, n::Int=20)
-    cr = filter(r->zep.data[r,:CLASS]==classname, eachparticle(zep))
-    d = collect(zip(cr, zep.data[cr,col]))
-    s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
-    return getindex.(s[intersect(eachindex(cr),1:n)],1)
+function rowsmin(zep::Zeppelin, col::Symbol; n::Int=20, classname::Union{Missing,AbstractString}=missing)
+    if ismissing(classname)
+        d = collect(zip(eachparticle(zep),zep.data[:,col]))
+        s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=false)
+        return getindex.(s[intersect(eachparticle(zep),1:n)],1)
+    else
+        cr = filter(r->zep.data[r,:CLASS]==classname, eachparticle(zep))
+        d = collect(zip(cr, zep.data[cr,col]))
+        s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=false)
+        return getindex.(s[intersect(eachindex(cr),1:n)],1)
+    end
 end
 
 """
-    rowsMin(zep::Zeppelin, col::Symbol, classname::AbstractString, n=20)
-
-Returns the row indices associated with the `n` minimum  values in the `col` column that
-are also members of the specified `classname`.
-
-Example:
-
-    # Plot ten smallest "Calcite" particles by :DAVG
-    plot(zep, rowsMin(zep, :DAVG, "Calcite", 10))
-"""
-function rowsMin(zep::Zeppelin, col::Symbol, classname::AbstractString, n::Int=20)
-    # Extract the rows for the class
-    cr = filter(r->zep.data[r,:CLASS]==classname, eachparticle(zep))
-    # Combine (row, datum) for each row
-    d = collect(zip(cr, zep.data[cr,col]))
-    # Sort by datum
-    s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=false)
-    # Return up to the first n rows
-    return getindex.(s[intersect(eachindex(cr),1:n)],1)
-end
-
-"""
-    rowsClass(zep::Zeppelin, classname::AbstractString, shuffle=false)
+    rowsclass(zep::Zeppelin, classname::AbstractString; shuffle=false, n=1000000)
 
 Returns the row indices associated with the specified `classname`.  If `shuffle` is true,
 the row indices are shuffled so that a randomized n can be plucked off to plot or other.
@@ -614,12 +568,16 @@ the row indices are shuffled so that a randomized n can be plucked off to plot o
 Example:
 
     # Plot a randomized selection of 10 "Calcite" particles
-    plot(zep, rowsClass(zep,"Calcite",true)[1:10], xmax=8.0e3)
+    plot(zep, rowsclass(zep, "Calcite", shuffle=true, n=10), xmax=8.0e3)
 """
-function rowsClass(zep::Zeppelin, classname::AbstractString, shuffle=false)
+function rowsclass(zep::Zeppelin, classname::AbstractString; shuffle=false, n=1000000)
     res = filter(i->zep.data[i,:CLASS]==classname, eachparticle(zep))
-    return shuffle ? Random.shuffle(res) : res
+    return (shuffle ? Random.shuffle(res) : res)[intersect(eachindex(res),1:n)]
 end
+rowsclass(zep::Zeppelin, classnames::AbstractVector{<:AbstractString}; shuffle=false, n=1000000) =
+    mapreduce(cn->rowsclass(zep, cn, shuffle=shuffle, n=n), union, classnames)
+
+
 
 """
     Base.filter(filt::Function, zep::Zeppelin)
@@ -633,10 +591,7 @@ Example:
     gsr = filter(row->startswith( String(row[:CLASS]), "GSR."), zep)
 
 """
-function Base.filter(filt::Function, zep::Zeppelin)
-    rows = filter(r->filt(zep.data[r,:]), eachparticle(zep))
-    return Zeppelin(zep.headerfile, copy(zep.header), zep.data[rows,:])
-end
+Base.filter(filt::Function, zep::Zeppelin) = filter(r->filt(zep.data[r,:]), eachparticle(zep))
 
 """
     multiternary(
@@ -648,17 +603,22 @@ Plot the elemental data in `zep` to a multi-ternary diagram.
 """
 function multiternary(
         zep::Zeppelin;
+        rows = missing,
         omit = [ n"C", n"O" ],
-        palette = TernPalette)
+        palette = TernPalette,
+        fontsz = 12pt,
+        deffont = "Verdana",
+)
     # Determine which elements to plot...
+    zd = ismissing(rows) ? zep.data : zep.data[rows, :]
     df=DataFrame(Elm=Symbol[], Mean=Float64[])
     for elm in filter(elm->!(elm in omit), zep.elms)
         sy = convert(Symbol, elm)
-        push!(df, [sy, mean(zep.data[:,sy])])
+        push!(df, [sy, mean(zd[:,sy])])
     end
     sort!(df, :Mean, rev=true)
     elms = df[:,:Elm][1:min(size(df,1),6)]
-    NeXLParticle.multiternary(zep.data, elms, :CLASS, title=zep.header["DESCRIPTION"], palette=palette, norm=100.0)
+    NeXLParticle.multiternary(zd, elms, :CLASS, title=zep.header["DESCRIPTION"], palette=palette, norm=100.0, fontsz=fontsz, deffont=deffont)
 end
 
 

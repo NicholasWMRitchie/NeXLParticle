@@ -128,7 +128,7 @@ function _quant(
     filt = buildfilter(det)
     # Create filtered references.  Not worth threading.
     filtrefs=mapreduce((elm,ref)->filterreference(filt, ref, elm, ref[:Composition]), append!, refs)
-    e0, toa = beamenergy(zep), sameproperty(ref[2] for ref in refs, :TakeOffAngle)
+    e0, toa = beamenergy(zep), sameproperty([ ref for (elm, ref) in refs], :TakeOffAngle)
     # Create a list of columns (by element)
     newcols = sort(collect(filter(elm -> !(elm in strip), keys(refs))))
     quant = Array{Union{UncertainValue,Missing}}(missing, length(rows), length(newcols))
@@ -197,7 +197,7 @@ function _quant(
     return hcat(fourelms, quantRes)
 end
 
-function quantify(zep::Zeppelin,
+function NeXLMatrixCorrection.quantify(zep::Zeppelin,
     det::Detector,
     refs::Dict{Element,Spectrum},
     rows::Union{AbstractVector{Int},UnitRange{Int}}=eachparticle(zep);

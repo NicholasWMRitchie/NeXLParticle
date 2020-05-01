@@ -1,0 +1,6 @@
+[zeptest]
+git-tree-sha1 = "f3e3bb81161ff8021c162a0d1fe9468192f02332"
+lazy = true
+  [[zeptest.download]]
+  sha256 = "07115AE49FE10B89F0782288D7A023C36909EB77EBBA707658B7EEF7ED440D22"
+  url = "https://drive.google.com/uc?export=download&id=1TZh4zbw2VY6QFlTfTpiPIG1U5uWepXRh"

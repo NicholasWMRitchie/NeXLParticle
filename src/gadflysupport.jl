@@ -5,6 +5,7 @@ function Gadfly.plot(
     zep::Zeppelin,
     rows;
     autoklms = true,
+    klms = [],
     xmin = 0.0,
     xmax = missing,
     norm = :None,
@@ -16,6 +17,7 @@ function Gadfly.plot(
     plot(
         Spectrum[filter(s->!ismissing(s), map(r -> spectrum(zep, r, false),rows))...],
         autoklms = autoklms,
+        klms = klms,
         xmin = xmin,
         xmax = xmax,
         norm = norm,

@@ -18,7 +18,7 @@ export data # Provides access to the DataFrame containing the particle data
 export iszeppelin # Is this IOStream or filename a Zeppelin file?
 export spectrum # read a spectrum associate with a Zeppelin file (or missing)
 export eachparticle # The range of partice row indices
-export rowsMax, rowsClass
+export rowsmax, rowsmin, rowsclass
 export MORPH_COLS, COMP_COLS, CLASS_COLS
 export allelms
 export beamenergy, probecurrent, magdata
@@ -52,7 +52,7 @@ export soille_watershed
 
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")
-    @info "Loading Gadfly support into NeXLParticle."
+    @require Weave = "44d3d7a6-8a23-5bf8-98c5-b353f8df5ec9" include("weavesupport.jl")
 end
 
 

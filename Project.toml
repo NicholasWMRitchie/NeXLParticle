@@ -19,10 +19,13 @@ NeXLMatrixCorrection = "3ab34fdf-2fe8-473b-9b20-30f5809db337"
 NeXLSpectrum = "6c578565-ca7f-4012-afc4-b8412d85af92"
 NeXLUncertainties = "7127f3d6-1721-46bc-bb38-8fc703dd438e"
 PeriodicTable = "7b2266bf-644c-5ea3-82d8-af4bbd25a884"
+Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 StatsBase = "2913bbd2-ae8a-5f71-8c99-4fb6c76f3a91"
+StringEncodings = "69024149-9ee7-55f6-a4c4-859efe599b68"
+Weave = "44d3d7a6-8a23-5bf8-98c5-b353f8df5ec9"
 
 [compat]
 NeXLCore = "^0.1.0"
@@ -33,7 +36,6 @@ julia = "1"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-Weave = "44d3d7a6-8a23-5bf8-98c5-b353f8df5ec9"
 
 [targets]
 test = ["Test"]

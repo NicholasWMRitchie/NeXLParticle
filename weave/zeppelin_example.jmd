@@ -1,0 +1,102 @@
+### ZepTest Example
+
+Use the Pkg.Artifacts mechanism to download an example data set and return the location.
+```julia
+using Pkg.Artifacts
+pwd()
+zeptest = "c:\\Users\\nritchie\\.julia\\artifacts\\f3e3bb81161ff8021c162a0d1fe9468192f02332"
+```
+Load the NeXLParticle library and use the Zeppelin structure to load the data.
+```julia
+using NeXLParticle
+using DataAPI
+zep = Zeppelin(joinpath(zeptest,"test.hdz"))
+DataAPI.describe(zep)
+```
+Use Gadfly to plot the "max-particle" spectrum - the spectrum that outlines all the spectra in the dataset to
+reveal where there are characteristic peaks in any spectrum.
+```julia; fig_width=10; fig_height=3; fig_ext=".svg";
+using Gadfly
+plot(maxparticle(zep, eachparticle(zep)), xmax=10.0e3)
+```
+`Gadfly.plot(...)` is overloaded to plot Zeppelin dataset spectra.
+```julia; fig_width=10; fig_height=3; fig_ext=".svg";
+plot(zep,(1,3,5),autoklms=true)
+```
+You can also access the individual spectra and the associate images using indexing.
+```julia; fig_width=6; fig_height=3; fig_ext=".svg";
+using Images
+s1 = zep[1]
+plot(s1, autoklms=true)
+```
+There are two images embedded within the TIFF image/spectrum file and associated with each particle.
+```julia; fig_ext=".png";
+mosaicview(s1[:Image][:,:,1],s1[:Image][:,:,2];nrow=1)
+```
+Plot the top 10 most Iron rich particles
+```julia; fig_width=10; fig_height=3; fig_ext=".svg";
+plot(zep, rowsmax(zep, :FE, n=10), autoklms=true)
+```
+Display the (up to) 10 most Mn-rich particles in the "Mn bearing" class sorted by quantity of Mn.
+```julia
+using DataFrames
+asa(DataFrame, zep, rows=rowsmax(zep, :MN, classname="Mn bearing", n=10), sortcol=:MN)
+```
+Not many!!! So let's look in "Iron-90" for 5 iron richest and 5 iron poorest particles.
+```julia
+maxmin = append!(rowsmax(zep, :FE, classname="Iron-90", n=5), rowsmin(zep, :FE, classname="Iron-90", n=5))
+asa(DataFrame, zep, rows=maxmin)
+```
+
+Pick 10 particles at random from the "Iron-90" class
+```julia; fig_width=10; fig_height=3; fig_ext=".svg";
+plot(zep, rowsclass(zep, "Iron-90", shuffle=true, n=10), autoklms=true)
+```
+
+What elements are in the table?
+```julia
+elms(zep)
+```
+
+What classes are in the table?
+```julia
+classes(zep)
+```
+
+What header items are there detailing the analysis?
+```julia
+header(zep)
+```
+
+Get some instrumental conditions.
+```julia
+beamenergy(zep), probecurrent(zep)
+```
+Get the data associated with each magnification included in the analysis
+```julia
+magdata(zep,0)
+```
+You can also apply a custom filter to the data.  For example, let's look for iron sulfide.
+```julia
+fes(p) = p[:FE]>60.0 && p[:S]>5.0 && (p[:FE]+p[:S]>90.0)
+asa(DataFrame, zep, rows=filter(fes, zep))
+```
+or to plot them
+```julia; fig_width=10; fig_height=3; fig_ext=".svg";
+plot(zep, filter(fes,zep), klms=[n"Fe",n"S", n"C", n"O"], xmax=10.0e3, autoklms=false)
+```
+
+How about a ternary diagram?
+```julia; fig_width=6; fig_height=6; fig_ext=".svg";
+display(multiternary(zep))
+```
+
+```julia; fig_width=6; fig_height=6; fig_ext=".svg";
+display(multiternary(zep, rows=rowsclass(zep,[ "Fe+S", "Iron-90", "Iron-80", "Iron-70", "Iron-60"])))
+```
+
+```julia; fig_width=10; fig_height=5; fig_ext=".svg";
+display(hstack(
+multiternary(zep, rows=rowsclass(zep, "Fe+S"), fontsz=9pt, deffont="Times New Roman"),
+multiternary(zep, rows=rowsclass(zep,[ "Iron-90", "Iron-80", "Iron-70", "Iron-60"]), fontsz=9pt, deffont="Blackadder ITC")))
+```

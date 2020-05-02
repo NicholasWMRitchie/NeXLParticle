@@ -168,8 +168,16 @@ NeXLCore.elms(zep::Zeppelin) = zep.elms
 
 header(zep::Zeppelin) = SortedDict(zep.header)
 
-function NeXLUncertainties.asa(::Type{DataFrame}, zep::Zeppelin; rows=missing, sortcol=:None, rev=false)
-    res = ismissing(rows) ? res : zep.data[intersect(rows, eachparticle(zep)), :]
+"""
+    asa(::Type{DataFrame}, zep::Zeppelin; rows=missing, columns=missing, sortcol=:None, rev=false)
+
+Create a DataFrame containing the particle data.  Optionally specify which rows and columns to include and
+whether to sort the resulting table.
+"""
+function NeXLUncertainties.asa(::Type{DataFrame}, zep::Zeppelin; rows=missing, sortcol=:None, columns=missing, rev=false)
+    rs = ismissing(rows) ? eachparticle(zep) : intersect(eachparticle(zep), rows)
+    cols = ismissing(columns) ? names(zep.data) : intersect(columns,names(zep.data))
+    res = zep.data[rs, cols]
     return sortcol≠:None ? sort(res, sortcol, rev=rev) : res
 end
 

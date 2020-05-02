@@ -96,3 +96,13 @@ display(hstack(
 multiternary(zep, rows=rowsclass(zep, "Fe+S"), fontsize=3.0, font="Times New Roman"),
 multiternary(zep, rows=rowsclass(zep,[ "Iron-90", "Iron-80", "Iron-70", "Iron-60"]), font="Blackadder ITC")))
 ```
+
+Let's extract only the elemental data for particles 23 to 35
+```julia
+asa(DataFrame, zep, rows=23:35, columns=allelms(zep))
+```
+
+Let's extract only the morphology data for particles 2, 22, and 222
+```julia
+asa(DataFrame, zep, rows=(2, 22, 222), columns=MORPH_COLS)
+```

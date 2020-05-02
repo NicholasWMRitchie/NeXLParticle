@@ -8,39 +8,6 @@ end
 
 Base.showable(m::MIME"application/svg", ctx::Context) = true
 Base.showable(m::MIME"application/png", ctx::Context) = true
-Base.showable(m::MIME"application/pdf", ctx::Context) = true
-Base.showable(m::MIME"application/ps", ctx::Context) = true
-Base.showable(m::MIME"application/tex", ctx::Context) = true
-
-function Base.display(report::Weave.Report, m::MIME"application/pdf", ctx::Context)
-    @info "In application/pdf"
-    display(report, MIME("image/svg+xml"), ctx)
-end
-
-function Base.display(report::Weave.Report, m::MIME"application/png", ctx::Context)
-    @info "In application/png"
-    display(report, MIME("image/svg+xml"), ctx)
-end
-
-function Base.display(report::Weave.Report, m::MIME"application/svg+xml", ctx::Context)
-    @info "In application/svg+xml"
-    display(report, MIME("image/svg+xml"), ctx)
-end
-
-function Base.display(report::Weave.Report, m::MIME"application/svg", ctx::Context)
-    @info "In application/svg"
-    display(report, MIME("image/svg+xml"), ctx)
-end
-
-function Base.display(report::Weave.Report, m::MIME"application/ps", ctx::Context)
-    @info "In application/ps"
-    display(report, MIME("image/svg+xml"), ctx)
-end
-
-function Base.display(report::Weave.Report, m::MIME"application/tex", ctx::Context)
-    @info "In application/tex"
-    display(report, MIME("image/svg+xml"), ctx)
-end
 
 function Base.display(report::Weave.Report, m::MIME"image/svg+xml", ctx::Context)
     chunk = report.cur_chunk

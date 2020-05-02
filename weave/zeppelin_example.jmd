@@ -90,13 +90,9 @@ How about a ternary diagram?
 ```julia; fig_width=6; fig_height=6; fig_ext=".svg";
 display(multiternary(zep))
 ```
-
-```julia; fig_width=6; fig_height=6; fig_ext=".svg";
-display(multiternary(zep, rows=rowsclass(zep,[ "Fe+S", "Iron-90", "Iron-80", "Iron-70", "Iron-60"])))
-```
-
+Let's be more selective about which classes we display and adapt the font.
 ```julia; fig_width=10; fig_height=5; fig_ext=".svg";
 display(hstack(
-multiternary(zep, rows=rowsclass(zep, "Fe+S"), fontsz=9pt, deffont="Times New Roman"),
-multiternary(zep, rows=rowsclass(zep,[ "Iron-90", "Iron-80", "Iron-70", "Iron-60"]), fontsz=9pt, deffont="Blackadder ITC")))
+multiternary(zep, rows=rowsclass(zep, "Fe+S"), fontsize=3.0, font="Times New Roman"),
+multiternary(zep, rows=rowsclass(zep,[ "Iron-90", "Iron-80", "Iron-70", "Iron-60"]), font="Blackadder ITC")))
 ```

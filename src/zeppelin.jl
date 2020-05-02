@@ -606,8 +606,8 @@ function multiternary(
         rows = missing,
         omit = [ n"C", n"O" ],
         palette = TernPalette,
-        fontsz = 12pt,
-        deffont = "Verdana",
+        fontsize = 12pt,
+        font = "Verdana",
 )
     # Determine which elements to plot...
     zd = ismissing(rows) ? zep.data : zep.data[rows, :]
@@ -618,7 +618,7 @@ function multiternary(
     end
     sort!(df, :Mean, rev=true)
     elms = df[:,:Elm][1:min(size(df,1),6)]
-    NeXLParticle.multiternary(zd, elms, :CLASS, title=zep.header["DESCRIPTION"], palette=palette, norm=100.0, fontsz=fontsz, deffont=deffont)
+    NeXLParticle.multiternary(zd, elms, :CLASS, title=zep.header["DESCRIPTION"], palette=palette, norm=100.0, fontsize=fontsize, font=font)
 end
 
 

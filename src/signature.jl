@@ -1,4 +1,5 @@
 using NeXLMatrixCorrection
+using CategoricalArrays
 using NeXLSpectrum
 using Base.Threads
 
@@ -40,8 +41,9 @@ end
 function kpure(sig::Signature, std::Material, elm::Element, lines::Vector{CharXRay}, stdE0, unkE0, stdθ, unkθ)::AbstractFloat
     res = get(sig.kpure, brightest(lines), -1.0)
     if res == -1.0
-        unkzaf = zafcorrection(sig.matrix, sig.fluorescence, Coating, std, lines, stdE0)
-        stdzaf = zafcorrection(sig.matrix, sig.fluorescence, Coating, pure(elm), lines, unkE0)
+        flines = filter(cxr->energy(inner(cxr))<min(stdE0, unkE0), lines)
+        unkzaf = zafcorrection(sig.matrix, sig.fluorescence, Coating, std, flines, stdE0)
+        stdzaf = zafcorrection(sig.matrix, sig.fluorescence, Coating, pure(elm), flines, unkE0)
         res = k(unkzaf, stdzaf, stdθ, unkθ)
         sig.kpure[brightest(lines)] = res
     end
@@ -52,7 +54,8 @@ end
     signature( #
         sig::Signature,
         krs::Vector{KRatio},
-        special::Set{Element}
+        special::Set{Element},
+        drop::Set{Element}
     )::Dict{Element,Float64}
 
 Computes a "particle signature" from the specified set of k-ratios.  A particle signature
@@ -63,8 +66,8 @@ un-normalized.
 function signature( #
     sig::Signature,
     krs::Vector{KRatio},
-    special::AbstractArray{Element},
-    drop::AbstractArray{Element}
+    special::Set{Element},
+    drop::Set{Element}
 )::Dict{Element,<:AbstractFloat}
     kzs = Dict{Element,AbstractFloat}()
     #Scale the k-ratios relative to a pure element...
@@ -127,7 +130,7 @@ function _quant(
     # Build the filtered references
     filt = buildfilter(det)
     # Create filtered references.  Not worth threading.
-    filtrefs=mapreduce((elm,ref)->filterreference(filt, ref, elm, ref[:Composition]), append!, refs)
+    filtrefs=mapreduce(elm->filterreference(filt, refs[elm], elm, refs[elm][:Composition]), append!, keys(refs))
     e0, toa = beamenergy(zep), sameproperty([ ref for (elm, ref) in refs], :TakeOffAngle)
     # Create a list of columns (by element)
     newcols = sort(collect(filter(elm -> !(elm in strip), keys(refs))))
@@ -154,9 +157,6 @@ function _quant(
             counts[ir] = NeXLSpectrum.characteristiccounts(res, ignore)
             if writeResidual
                 filename = spectrumfilename(zep, row, "Residual", ".msa")
-                if !isdir(dirname(filename))
-                    mkpath(dirname(filename))
-                end
                 writeEMSA(filename, NeXLSpectrum.residual(res))
             end
             culled = map(kr -> cull(cullRule, kr), askratios(res))
@@ -168,16 +168,16 @@ function _quant(
     fsig = Array{Union{UncertainValue,Missing}}(missing, length(rows), 4)
     sigx = Signature(XPP, ReedFluorescence, SimpleKRatioOptimizer(1.3))
     for ir in filter(ir->!ismissing(krvs[ir]), eachindex(rows))
-        sig = signature(sigx, krvs[ir], special) # Not thread safe...
+        sig = signature(sigx, krvs[ir], special, strip) # Not thread safe...
         quant[ir, :] = map(elm -> 100.0 * sig[elm], newcols)
         s2 = copy(sig)
         foreach(j->delete!(s2,j), special) # Special can't be a FIRSTELM, ...
         firstElms = topN(s2, nfirst)
-        felm[ir, :] = map(j->j<=nfirst ? firstElms[j].first : missing, 1:4)
-        fsig[ir, :] = map(j->j<=nfirst ? 100.0 * firstElms[j].second : missing, 1:4)
+        felm[ir, :] = map(j->j<=length(firstElms) && (value(firstElms[j].second) > 0.01) ? firstElms[j].first : missing, 1:4)
+        fsig[ir, :] = map(j->j<=length(firstElms) && (value(firstElms[j].second) > 0.01) ? 100.0 * value(firstElms[j].second) : missing, 1:4)
     end
     fourelms = DataFrame( #
-        FIRSTELM= felm[:,1], FIRSTPCT = value.(fsig[:,1]),
+        FIRSTELM = felm[:,1], FIRSTPCT = value.(fsig[:,1]),
         SECONDELM = felm[:,2], SECONDPCT = value.(fsig[:,2]), #
         THIRDELM = felm[:,3],  THIRDPCT = value.(fsig[:,3]), #
         FOURTHELM = felm[:,4], FOURTHPCT = value.(fsig[:,4]), #

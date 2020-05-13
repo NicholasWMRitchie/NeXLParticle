@@ -27,6 +27,7 @@ struct Zeppelin
             headerfile,
             header,
             filter(elm -> convert(Symbol,elm) in names(data), PeriodicTable.elements[1:94]),
+            Dict{String,String}(),
             data,
         )
     end
@@ -48,7 +49,7 @@ function loadZep( hdzfilename::String)
         sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
         sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
         clsnames = append!(["--None--"], map(c -> header[c], sortedkeys))
-        for col in (:CLASS, :VERIFIED_CLASS)
+        for col in (:CLASS, :VERIFIEDCLASS)
             ic = findfirst(nm->nm==col, names(res))
             if !isnothing(ic)
                 cls = categorical(Union{String,Missing}[ clsnames... ], ordered=true)[1:0] # empty but with correct levels
@@ -406,14 +407,16 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
     zd = DataFrame(zep.data)
     # Replace categorical data with the index (either into CLASS# in header or z(elm))
     for (ic, col) in enumerate(names(zd))
-        coldata=zd[:,col]
-        if coldata isa CategoricalArray
+        if col in (:CLASS, :VERIFIEDCLASS, :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM )
+            coldata=zd[:,col]
             select!(zd,Not(ic))
-            et = eltype(coldata)
-            if et == CategoricalArrays.CategoricalString{UInt32}
+            if col in ( :CLASS, :VERIFIEDCLASS )
+                @assert coldata isa CategoricalArray "Whoops! $col is a $(typeof(zd[:,col]))"
                 insertcols!(zd, ic, col=>[ coldata.refs[i]-1  for i in eachindex(coldata) ]) # CLASS
+            elseif col in (:FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM )
+                insertcols!(zd, ic, col=>[ ismissing(elm) ? 0 : z(elm)  for elm in coldata ]) # Element
             else
-                insertcols!(zd, ic, col=>[ coldata.refs[i]  for i in eachindex(coldata) ]) # Element
+                @info "Unanticipated column $col"
             end
         end
     end

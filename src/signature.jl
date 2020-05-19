@@ -3,7 +3,7 @@ using CategoricalArrays
 using NeXLSpectrum
 using Base.Threads
 
-function askratios(ffr::FilterFitResult)::Vector{KRatio}
+function askratios(ffr::FitResult)::Vector{KRatio}
     res = KRatio[]
     for lbl in keys(ffr.kratios)
         if lbl isa NeXLSpectrum.CharXRayLabel

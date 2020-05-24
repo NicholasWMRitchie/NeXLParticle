@@ -1,0 +1,112 @@
+## Testing the Watershed Implementation
+
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+using NeXLParticle
+using Images
+using FileIO
+using Gadfly
+
+imgs = load("C:\\Users\\nritchie\\Desktop\\EGOS Only\\00636.tif")
+img = imgs[:,:,2]
+
+ws = Watershed(img, LinRange(0.0,1.0,40))
+plot(x=ws.steps, y=NeXLParticle.areas(ws)/128^2, Geom.bar, Guide.xlabel("Threshold"), Guide.ylabel("Area (fractional)"), Coord.cartesian(xmin=0.0, xmax=1.0))
+```
+
+```julia
+ms = NeXLParticle.masks(ws)
+mosaicview([Gray.(ms[:,:,i]) for i in 1:depth(ws)], nrow=NeXLParticle.depth(ws)÷5, npad=5, rowmajor=true, fillvalue=1)
+```
+
+```julia
+mosaicview([Gray.(ms[:,i,:]) for i in 1:8:128], nrow=1, npad=5)
+```
+
+```julia
+mosaicview([Gray.(ms[i,:,:]) for i in 1:8:128], nrow=1, npad=5)
+```
+
+```julia
+bs = filter(b->area(b)>10, blob(ms[:,:,39], p->p))
+for i in 30:depth(ws)
+  bs = filter(b->area(b)>10, blob(ms[:,:,i], p->p))
+  if length(bs)>0
+    display(NeXLParticle.bin(ws,i))
+    display(mosaicview([ Gray.(maskedimage(b,img)) for b in bs], fillvalue=0.2, npad=5, nrow=(length(bs)+4)÷5))
+  end
+end
+```
+Let's attempt to track the blobs through the stacks...
+```julia
+bs39 = filter(b->area(b)>10, blob(ms[:,:,39], p->p))
+bs38 = filter(b->area(b)>10, blob(ms[:,:,38], p->p))
+m = [ crosscorr(bs38[i],bs39[j]) for i in eachindex(bs38), j in eachindex(bs39) ]
+```
+
+```julia
+for i in 30:39
+  b=filter(b->area(b)>10, blob(ms[:,:,i], p->p))[1]
+  p = perimeter(b)
+  s=curvature(b, max(3, 4*length(b.psteps)÷100))
+  # Plot the magnitude of the curvature overlaid on the perimeter
+  display(plot(x=[ci[2] for ci in p],y=[-ci[1] for ci in p], color=s,
+    Scale.color_continuous(minvalue=minimum(s), maxvalue=maximum(s)),
+    Guide.title("thresh = $i"), Geom.point))
+  display(plot(x=eachindex(s), y=s, Geom.line))
+end
+```
+
+
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+b=filter(b->area(b)>10, blob(ms[:,:,39], p->p))[1]
+s=curvature(b,4)
+display( (perimeterlength(b)/π, NeXLParticle.ecd(b)) )
+ci=perimeter(b)[findmax(s)[2]]
+maskedimage(b,img,ci)
+```
+
+```julia
+display(img)
+```
+
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+ii=39
+b=filter(b->area(b)>10, blob(ms[:,:,ii], p->p))
+redb=mapreduce(bb->separate(bb),append!,b)
+mosaicview([maskedimage(bb, img) for bb in redb], nrow=1)
+```
+
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+ii=38
+b=filter(b->area(b)>10, blob(ms[:,:,ii], p->p))
+redb=mapreduce(bb->separate(bb),append!,b)
+mosaicview([maskedimage(bb, img) for bb in redb], nrow=1)
+```
+
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+ii=38
+b=filter(b->area(b)>10, blob(ms[:,:,ii], p->p))
+redb=mapreduce(bb->separate(bb),append!,b)
+mosaicview([maskedimage(bb, img) for bb in redb], nrow=1)
+```
+
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+ii=37
+b=filter(b->area(b)>10, blob(ms[:,:,ii], p->p))
+redb=mapreduce(bb->separate(bb),append!,b)
+mosaicview([maskedimage(bb, img) for bb in redb], nrow=1)
+```
+
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+ii=36
+b=filter(b->area(b)>10, blob(ms[:,:,ii], p->p))
+redb=mapreduce(bb->separate(bb),append!,b)
+mosaicview([maskedimage(bb, img) for bb in redb], nrow=1)
+```
+
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+ii=35
+b=filter(b->area(b)>10, blob(ms[:,:,ii], p->p))
+redb=mapreduce(bb->separate(bb),append!,b)
+mosaicview([maskedimage(bb, img) for bb in redb], nrow=1)
+```

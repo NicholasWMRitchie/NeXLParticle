@@ -49,6 +49,16 @@ include("imageprocess.jl")
 export Blob
 export blob
 export soille_watershed
+export separate # Split agglomerated features in a Blob in many Blob(s)
+export curvature
+export perimeter
+export crosscorr
+export area
+export maskedimage
+export perimeterlength
+
+include("particlesegregation.jl")
+export Watershed
 
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")

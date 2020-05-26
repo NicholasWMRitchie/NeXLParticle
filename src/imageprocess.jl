@@ -29,7 +29,7 @@ struct Blob
                 pre, dirs = ( findfirst(r->m[r,1],1:size(m,1)), 1 ), 7:10
                 @assert msk(pre...)
                 ff = findfirst(r->msk((pre .+ steps[mod8(r)])...), dirs)
-                @assert !isnothing(ff)
+                @assert !isnothing(ff) "vert=>$vert, horz=>$horz m[pre]=>$(m[pre...]) m[b]=>$([msk((pre .+ s)...) for s in steps])"
                 prevdir = mod8(dirs[ff])
                 start=pre .+ steps[prevdir]
                 @assert msk(start...)
@@ -61,72 +61,64 @@ end
 """
     blob(img::AbstractArray, thresh::Function)::Vector{Blob}
 
-Create a Vector of Blob containing discontiguous regions meeting the
-threshold function.
+Create a Vector of `Blob`s containing discontiguous regions meeting the threshold function.  The
+result is sorted by `Blob` area.
 """
 function blob(img::AbstractArray, thresh::Function)::Vector{Blob}
     function extractmask(res, i, minR, maxR, minC, maxC)
         mask = BitArray(undef, maxR - minR + 1, maxC - minC + 1)
-        for c in minC:maxC, r in minR:maxR
-            mask[r-minR+1, c-minC+1] = (res[r, c] == i)
-        end
+        foreach(ci->mask[ci] = (res[(ci.I .+ (minR-1, minC-1))...] == i), CartesianIndices(mask))
         return mask
     end
-    imgH, imgW = size(img)
-    alias = Vector{Set{Integer}}()
     res = zeros(UInt16, size(img))
-    prev, next = img[1, 1], 0
-    for r = 1:imgH
-        for c = 1:imgW
-            if thresh(img[r, c])
-                above = r>1 ? res[r-1, c] : 0
-                if prev == 0
-                    if above == 0
-                        prev = (next += 1) # new region
-                        push!(alias, Set{Int}(prev))
-                    else
-                        prev = above
-                    end
-                elseif (above ≠ 0) && (above ≠ prev)
+    alias = Vector{Set{eltype(res)}}()
+    prev, next = zero(eltype(res)), zero(eltype(res))
+    for ci in CartesianIndices(img)
+        if thresh(img[ci])
+            above = ci[2] > 1 ? res[(ci.I .- (0,1))...] : zero(eltype(res))
+            if above ≠ 0
+                if (prev ≠ 0) && (above ≠ prev)
                     # Same blob => different indexes
                     ia = findfirst(al -> above in al, alias)
                     ip = findfirst(al -> prev in al, alias)
-                    @assert !isnothing(ia) "$above not in $alias"
-                    @assert !isnothing(ip) "$prev not in $alias"
+                    @assert !(isnothing(ia) || isnothing(ip)) "$prev or $above not in $alias"
                     if ia ≠ ip # merge regions
                         union!(alias[ia], alias[ip])
                         deleteat!(alias, ip)
                     end
-                    prev = above
                 end
-                @assert prev != 0
-                res[r, c] = prev
-            else
-                prev = 0
+                prev = above
+            elseif prev == 0
+                prev = (next += one(next))
+                push!(alias, Set{UInt16}(prev)) # new region
             end
+            @assert prev ≠ 0
+            res[ci] = prev
+        else
+            prev = zero(eltype(res))
         end
     end
     # Second pass combine the adjacent indices
-    newidx, nblobs = zeros(UInt8, next), length(alias)
-    for i = 1:nblobs
-        for id in alias[i]
-            newidx[id] = i
+    newidx, nblobs = zeros(eltype(res), next), length(alias)
+    for i in 1:nblobs, id in alias[i]
+        newidx[id] = i
+    end
+    rects = Dict{eltype(res),NTuple{4,Int}}(i => (100000, -1, 100000, -1) for i in 1:nblobs)
+    for ci in CartesianIndices(img)
+        if (bidx = res[ci]) ≠ zero(eltype(res)) # belongs to a blob
+            ni=(res[ci] = newidx[bidx])
+            rect = rects[ni]
+            rects[ni] = (min(ci[1], rect[1]), max(ci[1], rect[2]), min(ci[2], rect[3]), max(ci[2], rect[4]))
         end
     end
-    rects = Dict{Int,NTuple{4,Int}}(i => (100000, -1, 100000, -1) for i = 1:nblobs)
-    for r = 1:imgH, c = 1:imgW
-        bidx = res[r, c]
-        if bidx ≠ 0
-            newi = newidx[bidx]
-            res[r, c] = newi
-            rect = rects[newi]
-            rects[newi] = (min(r, rect[1]), max(r, rect[2]), min(c, rect[3]), max(c, rect[4]))
-        end
-    end
-    res = [Blob(rect[1]:rect[2], rect[3]:rect[4], extractmask(res, i, rect...)) for (i, rect) in rects]
-    sort!(res, lt=(b1,b2) -> area(b1) > area(b2))
-    return res
+    blobs = [Blob(rect[1]:rect[2], rect[3]:rect[4], extractmask(res, i, rect...)) for (i, rect) in rects]
+    sort!(blobs, lt=(b1,b2) -> area(b1) > area(b2))
+    return blobs
 end
+
+Base.CartesianIndices(b::Blob) = CartesianIndices((b.vertical,b.horizontal))
+Base.getindex(b::Blob, ci::CartesianIndex) = (ci[1] in b.vertical) && (ci[2] in b.horizontal) && #
+    b.mask[ci[1] - b.vertical.start + 1, ci[2] - b.horizontal.start + 1]
 
 """
     perimeter(b::Blob)::Vector{CartesianIndex}
@@ -170,8 +162,9 @@ function curvature(b::Blob, n::Int)
     angles = Float64[]
     for i in eachindex(b.psteps)
         sm, sp = -1 .* stepsum(i-1:-1:i-n), stepsum(i:i+n-1)
-        ac = dot(sm,sp)/(sqrt(dot(sm,sm))*sqrt(dot(sp,sp)))
-        @assert (ac<1.000001) && (ac>-1.00001)
+        den = sqrt(dot(sm,sm))*sqrt(dot(sp,sp))
+        ac = den > 0 ? dot(sm,sp)/den : 1.0
+        @assert (ac<1.00001) && (ac>-1.00001) "ac=$ac"
         c = (sm[1]*sp[2]-sm[2]*sp[1] < 0.0 ? -1.0 : 1.0) / #
             acos(min(1.0,max(-1.0, ac)))
         push!(angles, c)
@@ -224,12 +217,23 @@ and joining them with a short(ish) line.
 function separate(b::Blob, concavity=0.5)::Vector{Blob}
     modn(i) = (i+length(b.psteps)-1) % length(b.psteps) + 1
     stepsum(itr) = mapreduce(j->b.psteps[modn(j)], (x,y)->.+(x,y), itr, init=(0,0))
+    function fm(c, b, e)  # Handle peaks over beginning/end of perimeter
+        if b>e
+            @assert length(b:lastindex(c))>=1 "b=>$b, e=>$e"
+            @assert length(1:e)>=1 "b=>$b, e=>$e"
+            fm1, fm2 = findmax(c[b:end]), findmax(c[1:e])
+            return fm1[1] > fm2[1] ? fm1 : fm2
+        else
+            return findmax(b:e)
+        end
+    end
     # point where the line from p0->p1 intersects the line from p2->p3
     function intersection(p0, p1, p2, p3)
         function check(t)
-            s = (t*d01[1] - d02[1])/d23[1]
+            s = d23[1]≠0.0 ? (t*d01[1] - d02[1])/d23[1] : (t*d01[2] - d02[2])/d23[2]
             i1, i2 = (p2 .- s .* d23), (p0 .- t .* d01)
-            all(map(x->isapprox(x,0.0,atol=1.0e-8), i1 .- i2))
+            res=all(map(x->isapprox(x,0.0,atol=1.0e-8), i1 .- i2))
+            @assert res "s->$s, t->$t, i1->$i1, i2->$i2"
         end
         d23, d01, d02 = p2 .- p3, p0 .- p1, p0 .- p2
         den = d23[2]*d01[1]-d23[1]*d01[2]
@@ -247,19 +251,19 @@ function separate(b::Blob, concavity=0.5)::Vector{Blob}
             end
         else
             t = (d23[2]*d02[1] - d23[1]*d02[2]) / den
-            @assert check(t)
+            check(t)#  "$t for $d02, $d01, $d23"
             ii = p0 .- t .* d01
         end
         return CartesianIndex(map(x->round(Int, x),ii))
     end
     besti = -1
     if length(b.psteps) > 20
-        n = max(3, 4*length(b.psteps)÷100)
+        n = 4 #max(3, 4*length(b.psteps)÷100)
         p, c = perimeter(b), curvature(b, max(3, 4*length(b.psteps)÷100))
         beg = -1;
         if c[end]>concavity
             for i in length(c)-1:-1:1
-                if c[i]<thresh
+                if c[i]<concavity
                     beg = i+1
                     break
                 end
@@ -271,7 +275,7 @@ function separate(b::Blob, concavity=0.5)::Vector{Blob}
             if c[i]>concavity
                 beg = (beg==-1 ? i : beg)
             elseif beg ≠ -1
-                mc = findmax(c[beg:i-1])
+                mc = fm(c, beg, modn(i-1))
                 push!(maxes, beg+mc[2]-1)
                 beg=-1
             end
@@ -319,6 +323,26 @@ function maskedimage(b::Blob, img::Matrix, mark=missing, markvalue=0.5)
     res = map!(i -> b.mask[i] ? trimmed[i] : 0, zeros(eltype(trimmed), size(trimmed)), eachindex(trimmed))
     if !ismissing(mark)
         res[mark] = markvalue
+    end
+    return res
+end
+
+
+function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
+    colors = convert.(RGB, distinguishable_colors(
+        length(bs)+2,
+        Color[RGB(253 / 255, 255 / 255, 255 / 255), RGB(0, 0, 0), RGB(0 / 255, 168 / 255, 45 / 255)],
+        transform = deuteranopic,
+    )[3:end])
+    res = zeros(RGB{N0f8},size(img))
+    foreach(ci->res[ci]=RGB(img[ci],img[ci],img[ci]), CartesianIndices(res))
+    for (i, blob) in enumerate(bs)
+        col = colors[i]
+        for ci in CartesianIndices(blob)
+            if blob[ci]
+                res[ci] = 0.5*col+0.5*img[ci]
+            end
+        end
     end
     return res
 end

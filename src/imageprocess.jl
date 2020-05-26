@@ -12,13 +12,12 @@ one perimeter point to the next or a list of CartesianIndex with the coordinates
 of the perimeter points.
 """
 struct Blob
-    vertical::UnitRange{Int} # vertical extent of the blob in the original image
-    horizontal::UnitRange{Int} # horizontal extent of the blob in the original image
+    bounds::CartesianIndices
     mask::BitArray  # Mask of those pixels in the blob
     pstart::CartesianIndex # Start of the perimeter
     psteps::Vector{Tuple{Int,Int}} # Steps around perimeter
 
-    function Blob(vert::UnitRange{Int}, horz::UnitRange{Int}, mask::BitArray)
+    function Blob(bounds::CartesianIndices, mask::BitArray)
         function perimeter(m)  # Computes the perimeter steps
             stps = Tuple{Int,Int}[]
             if prod(size(m))>1
@@ -29,7 +28,7 @@ struct Blob
                 pre, dirs = ( findfirst(r->m[r,1],1:size(m,1)), 1 ), 7:10
                 @assert msk(pre...)
                 ff = findfirst(r->msk((pre .+ steps[mod8(r)])...), dirs)
-                @assert !isnothing(ff) "vert=>$vert, horz=>$horz m[pre]=>$(m[pre...]) m[b]=>$([msk((pre .+ s)...) for s in steps])"
+                @assert !isnothing(ff) "bounds=>$bounds, m[pre]=>$(m[pre...]) m[b]=>$([msk((pre .+ s)...) for s in steps])"
                 prevdir = mod8(dirs[ff])
                 start=pre .+ steps[prevdir]
                 @assert msk(start...)
@@ -51,9 +50,8 @@ struct Blob
             end
         end
         @assert ndims(mask)==2
-        @assert length(horz)==size(mask,2)
-        @assert length(vert)==size(mask,1)
-        return new(vert, horz, mask, perimeter(mask)...)
+        @assert size(bounds)==size(mask)
+        return new(bounds, mask, perimeter(mask)...)
     end
 end
 
@@ -111,20 +109,31 @@ function blob(img::AbstractArray, thresh::Function)::Vector{Blob}
             rects[ni] = (min(ci[1], rect[1]), max(ci[1], rect[2]), min(ci[2], rect[3]), max(ci[2], rect[4]))
         end
     end
-    blobs = [Blob(rect[1]:rect[2], rect[3]:rect[4], extractmask(res, i, rect...)) for (i, rect) in rects]
+    blobs = [Blob(CartesianIndices((rect[1]:rect[2], rect[3]:rect[4])), extractmask(res, i, rect...)) for (i, rect) in rects]
     sort!(blobs, lt=(b1,b2) -> area(b1) > area(b2))
     return blobs
 end
 
-Base.CartesianIndices(b::Blob) = CartesianIndices((b.vertical,b.horizontal))
-Base.getindex(b::Blob, ci::CartesianIndex) = (ci[1] in b.vertical) && (ci[2] in b.horizontal) && #
-    b.mask[ci[1] - b.vertical.start + 1, ci[2] - b.horizontal.start + 1]
+"""
+    Base.CartesianIndices(b::Blob)
+
+Bounds of the blob in the original image's coordinate system
+"""
+Base.CartesianIndices(b::Blob) = b.bounds
+
+"""
+    Base.getindex(b::Blob, ci::CartesianIndex)
+
+Whether a pixel in the original image's coordinate system is in the blob.
+"""
+Base.getindex(b::Blob, ci::CartesianIndex) = #
+    (ci in b.bounds) && b.mask[map(i->ci.I[i] - b.bounds.indices[i].start + 1, eachindex(ci.I))...]
 
 """
     perimeter(b::Blob)::Vector{CartesianIndex}
 
 Returns a vector of `CartesianIndex` corresponding to the points around the
-perimeter of the blob.
+perimeter of the blob in the original image's coordinate system.
 """
 function perimeter(b::Blob)::Vector{CartesianIndex}
     pts, acc = CartesianIndex[ b.pstart ], [ b.pstart.I... ]
@@ -198,14 +207,16 @@ function splitblob(b::Blob, p1::CartesianIndex, p2::CartesianIndex)
             end
         end
     end
-    offset(ui, off) = ui.start+off-1:ui.stop+off-1
+    function offset(cis1, cis2)
+        offs = map(ind->ind.start-1, cis2.indices)
+        return CartesianIndices(tuple(map(z->z[1].start+z[2]:z[1].stop+z[2], zip(cis1.indices,offs))...))
+    end
     mask = copy(b.mask)
     # Draw a line to divide the particles for reblobbing
     drawline(mask, p1.I..., p2.I...)
     res=blob(mask, p->p)
     # Fix up the hoz and vert
-    return map(b2->Blob(offset(b2.vertical, b.vertical.start), #
-                       offset(b2.horizontal, b.horizontal.start), b2.mask),res)
+    return map(b2->Blob(offset(b2.bounds, b.bounds), b2.mask),res)
 end
 
 """
@@ -243,7 +254,7 @@ function separate(b::Blob, concavity=0.5)::Vector{Blob}
             c1, c2 = -aa*p0[1] - bb*p0[2], -aa*p2[1] - bb*p2[2]
             sep2 = (c1-c2)^2/(aa^2+bb^2)
             if sep2 <= dot(p0 .- p2, p0 .- p2) && #
-                (sqrt(sep2) < 0.1*max(length(b.horizontal),length(b.vertical)))
+                sqrt(sep2) < 0.1*maximum(size(b.bounds))
                 # parallel, offset by less than 10%
                 ii = p2
             else # parallel but not close
@@ -319,7 +330,7 @@ area(b::Blob) = count(b.mask)
 Extract the image data in `img` associate the the Blob `b`.
 """
 function maskedimage(b::Blob, img::Matrix, mark=missing, markvalue=0.5)
-    trimmed = img[b.vertical, b.horizontal]
+    trimmed = img[b.bounds]
     res = map!(i -> b.mask[i] ? trimmed[i] : 0, zeros(eltype(trimmed), size(trimmed)), eachindex(trimmed))
     if !ismissing(mark)
         res[mark] = markvalue
@@ -348,17 +359,21 @@ function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
 end
 
 """
+    intersect(b1::Blob, b2::Blob)
+
+A CartesianIndices with the region in common between b1 and b2.
+"""
+Base.intersect(b1::Blob, b2::Blob) =
+    CartesianIndices(( intersect(b1.bounds.indices[i],b2.bounds.indices[i]) for i in eachindex(b1.bounds.indices)))
+
+"""
     crosscorr(b1::Blob, b2::Blob)::Float64
 
 Measures the extent to which `b1` and `b2` represent the same region on the
 image.
 """
-function crosscorr(b1::Blob, b2::Blob)::Float64
-    vo(b, r, c)::Bool = b.mask[r-b.vertical.start+1, c-b.horizontal.start+1]
-    vi, hi = intersect(b1.vertical, b2.vertical), intersect(b1.horizontal, b2.horizontal)
-    all(l->length(l)>0, (vi,hi)) ? #
-        sum(map(c->count(map(r->all(map(b->vo(b, r, c),(b1, b2))), vi)), hi))/max(area.((b1,b2))...) : 0.0
-end
+crosscorr(b1::Blob, b2::Blob)::Float64 =
+    count(ci->b1[ci] && b2[ci], intersect(b1,b2))/max(area.((b1,b2))...)
 
 """
     soille_watershed(img::Matrix, mask::BitArray{2}, connectity4::Bool = true)

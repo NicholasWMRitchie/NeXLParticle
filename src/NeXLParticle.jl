@@ -50,12 +50,18 @@ export Blob
 export blob
 export soille_watershed
 export separate # Split agglomerated features in a Blob in many Blob(s)
+export multiseparate # Multithreshold algorithm to separate agglomerated blobs
 export curvature
 export perimeter
 export crosscorr
 export area
+export perimeterlength
+export colorizedimage
 export maskedimage
 export perimeterlength
+export ecd
+export scorer
+export interiorregions
 
 include("particlesegregation.jl")
 export Watershed

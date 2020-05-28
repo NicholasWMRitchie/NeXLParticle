@@ -1,6 +1,7 @@
-using Images
 using FileIO
+using Images
 using LinearAlgebra
+using StatsBase
 
 
 """
@@ -23,26 +24,28 @@ struct Blob
             if prod(size(m))>1
                 msk(r,c) = checkbounds(Bool, m, r, c) && m[r,c]
                 mod8(x) = (x + 7) % 8 + 1 # maintains 1...8
-                steps = ( (0, 1), (-1, 1), (-1, 0), (-1, -1), #
-                          (0, -1), (1, -1), (1, 0), (1, 1) )
-                pre, dirs = ( findfirst(r->m[r,1],1:size(m,1)), 1 ), 7:10
+                next(cur, drs) = mod8(drs[findfirst(r->msk((cur .+ steps[mod8(r)])...), drs)])
+                steps = ( (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1),  )
+                pre = ( findfirst(r->m[r,1],1:size(m,1)), 1 )
                 @assert msk(pre...)
-                ff = findfirst(r->msk((pre .+ steps[mod8(r)])...), dirs)
-                @assert !isnothing(ff) "bounds=>$bounds, m[pre]=>$(m[pre...]) m[b]=>$([msk((pre .+ s)...) for s in steps])"
-                prevdir = mod8(dirs[ff])
+                ff = findfirst(r->msk((pre .+ steps[mod8(r)])...), 1:5)
+                if isnothing(ff)
+                    FileIO.save(File(format"PNG", "dump.png"),mask)
+                    @assert !isnothing(ff) "bounds=>$bounds, m[pre]=>$(m[pre...]) m[b]=>$([msk((pre .+ s)...) for s in steps])"
+                end
+                prevdir = next(pre, 1:5)
                 start=pre .+ steps[prevdir]
                 @assert msk(start...)
                 curr = start
                 while true
-                    dirs = prevdir-2:prevdir+4
-                    nextdir = mod8(dirs[findfirst(r->msk((curr .+ steps[mod8(r)])...), dirs)])
+                    nextdir = next(curr, prevdir-2:prevdir+4)
                     push!(stps, steps[nextdir])
                     curr = curr .+ steps[nextdir]
                     @assert msk(curr...)
-                    if curr == start
-                        break
-                    end
                     prevdir = nextdir
+                    if curr == start && steps[next(curr, prevdir-2:prevdir+4)] == stps[1]
+                        break # end at the start going the same direction
+                    end
                 end
                 return ( CartesianIndex(start), stps)
             else
@@ -51,7 +54,9 @@ struct Blob
         end
         @assert ndims(mask)==2
         @assert size(bounds)==size(mask)
-        return new(bounds, mask, perimeter(mask)...)
+        ci, stps = perimeter(mask)
+        # cip = CartesianIndex([ci.I[i]+bounds.indices[i].start-1 for i in eachindex(ci.I)]...)
+        return new(bounds, mask, ci, stps)
     end
 end
 
@@ -72,6 +77,7 @@ function blob(img::AbstractArray, thresh::Function)::Vector{Blob}
     alias = Vector{Set{eltype(res)}}()
     prev, next = zero(eltype(res)), zero(eltype(res))
     for ci in CartesianIndices(img)
+        ci.I[1] == 1 && (prev = 0)==0  # Reset prev each column
         if thresh(img[ci])
             above = ci[2] > 1 ? res[(ci.I .- (0,1))...] : zero(eltype(res))
             if above ≠ 0
@@ -151,11 +157,12 @@ perimeterlength(b::Blob) =
     mapreduce(st->sqrt(dot(st,st)), +, b.psteps)
 
 """
-    ecd(b::Blob)
+    ecd(b::Blob, filled = true)
 
-Computes the equivalent circular diameter.
+Computes the equivalent circular diameter (by default computes the ecd(..) based on the area including the area
+of any interior holes.)  A = πr² => ecd = 2r = 2√(A/π)
 """
-ecd(b::Blob) = 2.0 * sqrt(area(b) / π)
+ecd(b::Blob, filled=true) = 2.0 * sqrt((filled ? filledarea(b) : area(b)) / π)
 
 """
     curvature(b::Blob, n::Int)
@@ -171,11 +178,10 @@ function curvature(b::Blob, n::Int)
     angles = Float64[]
     for i in eachindex(b.psteps)
         sm, sp = -1 .* stepsum(i-1:-1:i-n), stepsum(i:i+n-1)
-        den = sqrt(dot(sm,sm))*sqrt(dot(sp,sp))
-        ac = den > 0 ? dot(sm,sp)/den : 1.0
+        den² = dot(sm,sm)*dot(sp,sp)
+        ac = den² > 0 ? dot(sm,sp)/sqrt(den²) : 1.0
         @assert (ac<1.00001) && (ac>-1.00001) "ac=$ac"
-        c = (sm[1]*sp[2]-sm[2]*sp[1] < 0.0 ? -1.0 : 1.0) / #
-            acos(min(1.0,max(-1.0, ac)))
+        c =  sign(sm[1]*sp[2]-sm[2]*sp[1])/acos(min(1.0,max(-1.0, ac)))
         push!(angles, c)
     end
     return angles
@@ -207,16 +213,12 @@ function splitblob(b::Blob, p1::CartesianIndex, p2::CartesianIndex)
             end
         end
     end
-    function offset(cis1, cis2)
-        offs = map(ind->ind.start-1, cis2.indices)
-        return CartesianIndices(tuple(map(z->z[1].start+z[2]:z[1].stop+z[2], zip(cis1.indices,offs))...))
-    end
     mask = copy(b.mask)
     # Draw a line to divide the particles for reblobbing
     drawline(mask, p1.I..., p2.I...)
     res=blob(mask, p->p)
     # Fix up the hoz and vert
-    return map(b2->Blob(offset(b2.bounds, b.bounds), b2.mask),res)
+    return map(b2->Blob(__offset(b2.bounds, b.bounds), b2.mask),res)
 end
 
 """
@@ -225,96 +227,122 @@ end
 Break b into many Blob(s) by looking for concave regions on the perimeter
 and joining them with a short(ish) line.
 """
-function separate(b::Blob, concavity=0.5)::Vector{Blob}
-    modn(i) = (i+length(b.psteps)-1) % length(b.psteps) + 1
-    stepsum(itr) = mapreduce(j->b.psteps[modn(j)], (x,y)->.+(x,y), itr, init=(0,0))
-    function fm(c, b, e)  # Handle peaks over beginning/end of perimeter
-        if b>e
-            @assert length(b:lastindex(c))>=1 "b=>$b, e=>$e"
-            @assert length(1:e)>=1 "b=>$b, e=>$e"
-            fm1, fm2 = findmax(c[b:end]), findmax(c[1:e])
-            return fm1[1] > fm2[1] ? fm1 : fm2
-        else
-            return findmax(b:e)
-        end
-    end
-    # point where the line from p0->p1 intersects the line from p2->p3
-    function intersection(p0, p1, p2, p3)
-        function check(t)
-            s = d23[1]≠0.0 ? (t*d01[1] - d02[1])/d23[1] : (t*d01[2] - d02[2])/d23[2]
-            i1, i2 = (p2 .- s .* d23), (p0 .- t .* d01)
-            res=all(map(x->isapprox(x,0.0,atol=1.0e-8), i1 .- i2))
-            @assert res "s->$s, t->$t, i1->$i1, i2->$i2"
-        end
-        d23, d01, d02 = p2 .- p3, p0 .- p1, p0 .- p2
-        den = d23[2]*d01[1]-d23[1]*d01[2]
-        if isapprox(den, 0.0, atol=1.0e-8) # parallel
-            # check distance between parallel lines (a*x+b*y+c=0 form)
-            aa, bb = d01[2], d01[1]
-            c1, c2 = -aa*p0[1] - bb*p0[2], -aa*p2[1] - bb*p2[2]
-            sep2 = (c1-c2)^2/(aa^2+bb^2)
-            if sep2 <= dot(p0 .- p2, p0 .- p2) && #
-                sqrt(sep2) < 0.1*maximum(size(b.bounds))
-                # parallel, offset by less than 10%
-                ii = p2
-            else # parallel but not close
-                ii = (-1.0, -1.0)
+function separate(b::Blob, concavity=0.42, withinterior=true)::Vector{Blob}
+    modn(bb,i) = (i+length(bb.psteps)-1) % length(bb.psteps) + 1
+    # In the concatity vector, find peaks of positive regions
+    function findmaxes(c::Vector{Float64}, minwidth::Int, concav::Float64)::Vector{Int}
+        first, st, maxi, maxes = c[1] > 0.0 ? -1 : 0, 0, 0, Int[]
+        for i in eachindex(c)
+            if first < 0 # First keeps track of (possible) initial region above zero
+                first = c[i] > c[-first] ? -i : (c[i] < 0.0 ? -first : first)
             end
-        else
-            t = (d23[2]*d02[1] - d23[1]*d02[2]) / den
-            check(t)#  "$t for $d02, $d01, $d23"
-            ii = p0 .- t .* d01
-        end
-        return CartesianIndex(map(x->round(Int, x),ii))
-    end
-    besti = -1
-    if length(b.psteps) > 20
-        n = 4 #max(3, 4*length(b.psteps)÷100)
-        p, c = perimeter(b), curvature(b, max(3, 4*length(b.psteps)÷100))
-        beg = -1;
-        if c[end]>concavity
-            for i in length(c)-1:-1:1
-                if c[i]<concavity
-                    beg = i+1
-                    break
+            if st == 0 # In region below zero concavity
+                if c[i] > 0.0
+                    st, maxi = i, i
+                end
+            else # In region of positive concavity
+                maxi = c[i] > c[maxi] ? i : maxi
+                if c[i] < 0.0
+                    if i - st >= minwidth && c[maxi] >= concav
+                        push!(maxes, maxi)
+                    end
+                    st, maxi = 0, 0 # start new region of below zero concavity
                 end
             end
         end
-        # Find the perimeter points with the maximum concavity
-        maxes = Int[] # Concave region's max
-        for i in 1:(beg==-1 ? length(c) : beg-1)
-            if c[i]>concavity
-                beg = (beg==-1 ? i : beg)
-            elseif beg ≠ -1
-                mc = fm(c, beg, modn(i-1))
-                push!(maxes, beg+mc[2]-1)
-                beg=-1
+        if first > 0 # Deal with initial region
+            lenfirst = (st ≠ 0 ? length(c) - st : 0) + findfirst(i -> c[i] < 0.0, eachindex(c))
+            maxi = st ≠ 0 ? (c[maxi] > c[first] ? maxi : first) : first
+            if lenfirst >= minwidth && c[maxi] >= concav
+                push!(maxes, maxi)
+            end
+        end
+        return maxes
+    end
+    besti = -1
+    if length(b.psteps) > 20
+        p, c = perimeter(b), curvature(b, 4)
+        maxes = findmaxes(c, 4, concavity) # maximum
+        if withinterior
+            p, c = perimeter(b), curvature(b, 4)
+            maxes = findmaxes(c, 4, concavity) # maximum
+            for ir in interiorregions(b)
+                if area(ir)>20
+                    append!(p,perimeter(ir))
+                    c = 0.0 .- curvature(ir, 4)
+                    append!(maxes, findmaxes(c, 4, concavity))
+                end
             end
         end
         # Find pairs of concavities to use as splitters
         bestj, bestlen = -1, 100000^2
-        for i in eachindex(maxes)
-            ii = maxes[i]
-            ci, mi = 1.0 .* p[ii].I, (p[modn(ii-n)].I .+ p[modn(ii+n)].I) ./ 2.0
-            for j in i+1:length(maxes)
-                ij = maxes[j]
-                cj, mj = 1.0 .* p[ij].I, (p[modn(ij-n)].I .+ p[modn(ij+n)].I) ./ 2.0
-                pi=intersection(ci, mi, cj, mj)
-                # Is the intersection point inside the blob??
-                if checkbounds(Bool, b.mask, pi) && b.mask[pi]
-                    len = dot(p[ii].I .- p[ij].I, p[ii].I .- p[ij].I)
-                    # pick the shortest splitter
-                    if len < bestlen
-                        besti, bestj, bestlen = ii, ij, len
-                    end
-                end
+        for (i, ii) in enumerate(maxes), ij in maxes[i+1:end]
+            len = dot(p[ii].I .- p[ij].I, p[ii].I .- p[ij].I)
+            # pick the shortest splitter
+            if len < bestlen
+                besti, bestj, bestlen = ii, ij, len
             end
         end
     end
     # There is a split point so split it and recursively separate the splits
-    return besti==-1 ? [ b ] : #
-        mapreduce(separate, append!, splitblob(b, p[besti], p[bestj]),init=Blob[])
+    return besti==-1 ? [ b ] : mapreduce(separate, append!, splitblob(b, p[besti], p[bestj]),init=Blob[])
 end
+
+
+"""
+    scorer(b::Blob)
+
+A default function to score a blob as a candidate particle.  Smaller scores are more particle like.
+"""
+scorer(b::Blob, minarea=100) = # perimeter/π == ecd for a circle
+     (area(b) < minarea ? 100.0 : minarea/area(b)) + perimeterlength(b) / (π*ecd(b, false))
+
+
+"""
+    multiseparate(img::Array, threshes, score; concavity=0.42)
+
+Uses multiple thresholds to attempt to find the best separation of the distinct blobs in the image.  The best blob b
+is defined as the one that produces particles that produce large `score(b)`.  So a blob will be split if splitting
+the blob will produce multiple blobs of lower scores. The default function 'scorer(b::Blob)' looks for more circular
+blobs.
+"""
+function multiseparate(img::Array, threshes; score=scorer, concavity=0.42, minarea=10, diag=true)
+    best = Blob[]
+    basefn,cx = "C:\\Users\\nritchie\\Desktop\\EGOS Only\\scoring\\multisep", 0
+    for th in threshes
+        starters = blob(img, p->p>=th)
+        if length(starters)>0
+            blobs = filter(b->area(b) > minarea, mapreduce(b->separate(b, concavity), append!, starters))
+            newbest = Blob[]
+            # compare the new blobs to the best previous ones
+            for bb in best
+                becomes = filter(b->crosscor(b, bb) > 0.1, blobs)
+                deleteat!(blobs, map(b1->findfirst(b2->b1===b2, blobs), becomes))
+                if length(becomes)==1  # Take the larger one...
+                    push!(newbest, area(becomes[1]) > area(bb) ? becomes[1] : bb)
+                # Should current best be split?
+                elseif length(becomes)>1
+                    split = mean(score.(becomes)) < score(bb)
+                    open("$basefn[details].txt","a") do io
+                        write(io, "$(basename(basefn)): before[$(cx+=1), $(score(bb))] => becomes[$(score.(becomes)))]\n")
+                        write(io, "pl = $(perimeterlength(bb)), ecd=$(ecd(bb,false))\n")
+                    end
+                    FileIO.save(File(format"PNG","$basefn[$cx, before, $split].png"), NeXLParticle.colorizedimage([bb], img))
+                    FileIO.save(File(format"PNG","$basefn[$cx, after, $split].png"), NeXLParticle.colorizedimage(becomes, img))
+                    if split
+                        append!(newbest, becomes) # split it up...
+                    end
+                else
+                    push!(newbest, bb)  # and still champion...
+                end
+                # delete 'becomes' from 'blobs'
+            end
+            best = append!(blobs, newbest)
+        end
+    end
+    return best
+end
+
 
 
 """
@@ -340,6 +368,7 @@ end
 
 
 function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
+    off(ci, bs) = [ci.I[i]+bs.bounds.indices[i].start-1 for i in eachindex(ci.I)]
     colors = convert.(RGB, distinguishable_colors(
         length(bs)+2,
         Color[RGB(253 / 255, 255 / 255, 255 / 255), RGB(0, 0, 0), RGB(0 / 255, 168 / 255, 45 / 255)],
@@ -349,14 +378,13 @@ function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
     foreach(ci->res[ci]=RGB(img[ci],img[ci],img[ci]), CartesianIndices(res))
     for (i, blob) in enumerate(bs)
         col = colors[i]
-        for ci in CartesianIndices(blob)
-            if blob[ci]
-                res[ci] = 0.5*col+0.5*img[ci]
-            end
-        end
+        foreach(ci->res[ci] = 0.5*col+0.5*img[ci], filter(c->blob[c], CartesianIndices(blob))) # draw interior
+        foreach(ci->res[off(ci,blob)...] = col, perimeter(blob)) # draw perimeter
+        res[off(blob.pstart,blob)...] = RGB(1.0,0.0,0.0) # draw start of perimeter...
     end
     return res
 end
+
 
 """
     intersect(b1::Blob, b2::Blob)
@@ -364,16 +392,16 @@ end
 A CartesianIndices with the region in common between b1 and b2.
 """
 Base.intersect(b1::Blob, b2::Blob) =
-    CartesianIndices(( intersect(b1.bounds.indices[i],b2.bounds.indices[i]) for i in eachindex(b1.bounds.indices)))
+    CartesianIndices( tuple(map(i->intersect(b1.bounds.indices[i], b2.bounds.indices[i]), eachindex(b1.bounds.indices))...))
 
 """
     crosscorr(b1::Blob, b2::Blob)::Float64
 
 Measures the extent to which `b1` and `b2` represent the same region on the
-image.
+image. Normalized by area of b2.
 """
-crosscorr(b1::Blob, b2::Blob)::Float64 =
-    count(ci->b1[ci] && b2[ci], intersect(b1,b2))/max(area.((b1,b2))...)
+StatsBase.crosscor(b1::Blob, b2::Blob)::Float64 =
+    count(ci->b1[ci] && b2[ci], intersect(b1,b2))/area(b2)
 
 """
     soille_watershed(img::Matrix, mask::BitArray{2}, connectity4::Bool = true)
@@ -497,4 +525,17 @@ function soille_watershed(img::Matrix, mask::BitArray{2}, connectity4::Bool = tr
         fp[r, c] = tabLabels[r, c] == INIT ? 0 : tabLabels[r, c]
     end
     return fp
+end
+
+function interiorregions(b::Blob)
+    onedge(b1, b2) = any(map(i->b1[i].start==1 ||  b1[i].stop==b2[i].stop-b2[i].start+1, eachindex(b2)))
+    tmp = filter(ib->!onedge(ib.bounds.indices, b.bounds.indices), blob(b.mask,p->!p))
+    return Blob[ Blob(__offset(tb.bounds, b.bounds), tb.mask) for tb in tmp ]
+end
+
+filledarea(b::Blob) = area(b) + sum(area.(interiorregions(b)))
+
+function __offset(ci::CartesianIndices, base::CartesianIndices)
+    rs = map(i->ci.indices[i].start + base.indices[i].start -1:ci.indices[i].stop + base.indices[i].start -1, eachindex(ci.indices))
+    return CartesianIndices(tuple(rs...))
 end

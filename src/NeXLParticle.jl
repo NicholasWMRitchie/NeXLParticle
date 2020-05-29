@@ -63,6 +63,10 @@ export ecd
 export scorer
 export interiorregions
 
+include("rca.jl")
+export rca
+export metrics
+
 include("particlesegregation.jl")
 export Watershed
 

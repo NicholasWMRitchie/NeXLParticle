@@ -366,7 +366,12 @@ function maskedimage(b::Blob, img::Matrix, mark=missing, markvalue=0.5)
     return res
 end
 
+"""
+    colorizedimage(bs::Vector{Blob}, img::AbstractArray)
+    colorizedimage(chords::Vector{Vector{CartesianIndex}}, img::AbstractArray)
 
+Create a colorized version of img and draw the blob or chords on it.
+"""
 function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
     off(ci, bs) = [ci.I[i]+bs.bounds.indices[i].start-1 for i in eachindex(ci.I)]
     colors = convert.(RGB, distinguishable_colors(
@@ -374,8 +379,7 @@ function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
         Color[RGB(253 / 255, 255 / 255, 255 / 255), RGB(0, 0, 0), RGB(0 / 255, 168 / 255, 45 / 255)],
         transform = deuteranopic,
     )[3:end])
-    res = zeros(RGB{N0f8},size(img))
-    foreach(ci->res[ci]=RGB(img[ci],img[ci],img[ci]), CartesianIndices(res))
+    res = RGB.(img)
     for (i, blob) in enumerate(bs)
         col = colors[i]
         foreach(ci->res[ci] = 0.5*col+0.5*img[ci], filter(c->blob[c], CartesianIndices(blob))) # draw interior

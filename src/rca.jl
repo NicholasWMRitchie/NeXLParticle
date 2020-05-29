@@ -22,7 +22,7 @@ function rca(img::AbstractArray, start::CartesianIndex, thresh::Function, nchord
     end
     @assert thresh(img[start]) "The initial point does not meet the threshold in drawchord(...)"
     bisectors = (((1, 0), (-1, 0)), ((0, 1), (0, -1)), ((1, 1), (-1, -1)), ((-1, 1), (1, -1)))
-    rat = map(i -> rationalize(Int32, tan(2π * i / (2 * nchords)), tol = 1.0e-8), 1:nchords÷2)
+    rat = map(i -> rationalize(Int32, tan(2π * i / (2 * nchords)), tol = 1.0e-8), 1:nchords÷2) # 9.3 μs
     chords = (
         ((-numerator(r), -denominator(r)) for r in rat)..., #
         ((-denominator(r), numerator(r)) for r in rat)..., #

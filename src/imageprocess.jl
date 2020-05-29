@@ -61,6 +61,10 @@ struct Blob
 end
 
 
+Base.show(io::IO, b::Blob) =
+    print(io, "Blob[$(b.bounds.indices), area=$(area(b)), perimeter=$(perimeterlength(b))]")
+
+
 """
     blob(img::AbstractArray, thresh::Function)::Vector{Blob}
 

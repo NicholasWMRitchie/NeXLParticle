@@ -300,7 +300,7 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Miss
     file, at = spectrumfilename(zep, row, "MAG", ".tif"), missing
     if isfile(file)
         try
-            at = readAspexTIFF(file, withImgs = withImgs)
+            at = loadspectrum(ASPEXTIFF, file, withImgs = withImgs)
         catch err
             showerror(stderr, err)
             @info "$(file) does not appear to be a valid ASPEX spectrum TIFF."
@@ -473,7 +473,7 @@ function residual(zep::Zeppelin, row::Int, withImgs=false)::Union{Spectrum,Missi
     res = missing
     try
         filename = spectrumfilename(zep, row, "Residual", ".msa")
-        res = isfile(filename) ? readEMSA(filename) : missing
+        res = isfile(filename) ? loadspectrum(filename) : missing
     catch
         # Ignore errors, just return missing
     end

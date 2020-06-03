@@ -31,7 +31,7 @@ plot(s1, autoklms=true)
 ```
 There are two images embedded within the TIFF image/spectrum file and associated with each particle.
 ```julia; fig_ext=".png";
-mosaicview(s1[:Image][:,:,1],s1[:Image][:,:,2];nrow=1)
+mosaicview(s1[:Image1],s1[:Image2];nrow=1)
 ```
 Plot the top 10 most Iron rich particles
 ```julia; fig_width=10; fig_height=3; fig_ext=".svg";

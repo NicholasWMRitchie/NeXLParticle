@@ -22,7 +22,7 @@ zeptest = artifact"zeptest"
     @test maxparticle(zep,1:10)[123] == 42.0
     relms = ( n"Ag", n"Al", n"Ba", n"Bi", n"Br", n"C", n"Ca", n"Ce", n"Cl", n"Co", n"Cr", n"Cu", n"F", n"Fe", n"K", n"Mg", n"Mn", n"Na", n"Nd", n"Ni",
         n"O", n"P", n"Pb", n"S", n"Sb", n"Si", n"Sn", n"Sr", n"Ti", n"V", n"W", n"Zn", n"Zr" )
-    refs = Dict{Element,Spectrum}( elm => readEMSA(joinpath(zeptest,"Standards","$(elm.symbol) std.msa")) for elm in relms)
+    refs = Dict{Element,Spectrum}( elm => loadspectrum(joinpath(zeptest,"Standards","$(elm.symbol) std.msa")) for elm in relms)
     det = matching(refs[n"Fe"],132.0)
     res = quantify(zep, det, refs, withUncertainty=true)
     @test isapprox(res[6,:FE], 94.87, atol=0.01)

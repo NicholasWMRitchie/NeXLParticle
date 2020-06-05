@@ -45,10 +45,9 @@ export multiternary
 export TernPalette
 export TernColorblind
 
-include("imageprocess.jl")
+include("blob.jl")
 export Blob
 export blob
-export soille_watershed
 export separate # Split agglomerated features in a Blob in many Blob(s)
 export multiseparate # Multithreshold algorithm to separate agglomerated blobs
 export curvature
@@ -66,6 +65,9 @@ export interiorregions
 include("rca.jl")
 export rca
 export metrics
+
+include("watershed.jl")
+export soille_watershed
 
 include("particlesegregation.jl")
 export Watershed

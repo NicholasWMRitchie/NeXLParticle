@@ -1,4 +1,6 @@
 using LinearAlgebra: dot
+using OnlineStatsBase
+using Statistics
 
 function rca(img::AbstractArray, start::CartesianIndex, thresh::Function, nchords = 16)
     function measurechord(ci, slope)
@@ -138,48 +140,58 @@ end
 
 Take a `Vector{CartesianIndex}` from `rca(...)` and compute morphology metrics.
 """
-function metrics(chords::Vector{CartesianIndex})::Dict{Symbol,Float64}
+function metrics(chords::Vector{CartesianIndex}, scale=1.0)::Dict{Symbol,Float64}
     lo2, lo4 = length(chords) ÷ 2, length(chords) ÷ 4
     len(a) = sqrt(dot(a, a))
     leni(i) = len(chords[i].I .- chords[i+lo2].I)
     triarea(a, b) = 0.5 * abs(a[1] * b[2] - a[2] * b[1]) # area of triangle with edges a and b
-    s = (minl = (maxl = leni(1)))
-    imax = 1
-    ymax, xmax = chords[1].I
-    ymin, xmin = chords[1].I
-    for i = 2:lo2
-        l = leni(i)
-        minl = l < minl ? l : minl
-        if l > maxl
-            imax = i
-            maxl = l
+    s, extrema = Moments(), Extrema()
+    dmax, imax = 0.0, -1
+    for i in 1:lo2
+        d = leni(i)
+        if d>dmax
+            dmax=d
+            imax=i
         end
-        s += l
-        ymax = max(chords[i].I[1], chords[i+lo2].I[1]) > ymax ? max(chords[i].I[1], chords[i+lo2].I[1]) : ymax
-        ymin = min(chords[i].I[1], chords[i+lo2].I[1]) < ymin ? min(chords[i].I[1], chords[i+lo2].I[1]) : ymin
-        xmax = max(chords[i].I[2], chords[i+lo2].I[2]) > xmax ? max(chords[i].I[2], chords[i+lo2].I[2]) : xmax
-        xmin = min(chords[i].I[2], chords[i+lo2].I[2]) < xmin ? min(chords[i].I[2], chords[i+lo2].I[2]) : xmin
+        fit!(extrema, d)
+        fit!(s, d)
     end
     perim = len(chords[1].I .- chords[end].I)
     center = (chords[1].I[1], chords[lo4+1].I[2])
     area = triarea(chords[1].I .- center, chords[end].I .- center)
-    for i = 2:length(chords)
+    yext, xext = Extrema(), Extrema()
+    fit!(yext, chords[1].I[1])
+    fit!(xext, chords[1].I[2])
+    for i in 2:length(chords)
         perim += len(chords[i].I .- chords[i-1].I)
         area += triarea(chords[i].I .- center, chords[i-1].I .- center)
+        fit!(yext, chords[i].I[1])
+        fit!(xext, chords[i].I[2])
     end
-    dperp = leni((imax + lo4) % lo2)
+    dperp = leni((imax -1 + lo4) % lo2 + 1)
     return Dict(
-        :DMIN => minl,
-        :DMAX => maxl,
-        :DAVG => 2.0 * s / length(chords),
+        :DMIN => scale * minimum(extrema),
+        :DMAX => scale * maximum(extrema),
+        :DAVG => scale * Statistics.mean(s),
+        :DSIG => scale * Statistics.var(s),
         :DPERP => dperp,
-        :ASPECT => maxl / dperp,
-        :PERIM => perim,
+        :ASPECT => dmax / dperp,
+        :PERIM => scale * perim,
         :XCENT => center[2],
         :YCENT => center[1],
         :ORIENT2 => 2π * imax / length(chords) - π,
-        :XFERET => xmax - xmin,
-        :YFERET => ymax - ymin,
-        :AREA => area,
+        :XFERET => scale * (maximum(xext) - minimum(xext)),
+        :YFERET => scale * (maximum(yext) - minimum(yext)),
+        :AREA => scale^2 * area,
     )
+end
+
+function area(chords::Vector{CartesianIndex}, scale=1.0)
+    triarea(a, b) = 0.5 * abs(a[1] * b[2] - a[2] * b[1]) # area of triangle with edges a and b
+    center = (chords[1].I[1], chords[length(chords)÷4+1].I[2])
+    area = triarea(chords[1].I .- center, chords[end].I .- center)
+    for i in 2:length(chords)
+        area += triarea(chords[i].I .- center, chords[i-1].I .- center)
+    end
+    return area
 end

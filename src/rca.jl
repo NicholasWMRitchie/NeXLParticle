@@ -1,6 +1,5 @@
 using LinearAlgebra: dot
 using OnlineStatsBase
-using Statistics
 
 function rca(img::AbstractArray, start::CartesianIndex, thresh::Function, nchords = 16)
     function measurechord(ci, slope)

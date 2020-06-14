@@ -1,0 +1,102 @@
+# Notes on Benzaquen 2020
+#### A Mixture Model for the Number of Gunshot Residues Found on Suspects’ Hands
+
+Nicholas W. M. Ritchie, 12-Jun-2020
+
+```julia
+using SpecialFunctions: gamma
+using Gadfly
+```
+Two types of suspects. Those who were involved with the shooting and those who were not.
+```julia
+abstract type Suspect end
+struct NotInvolved <: Suspect end
+struct Involved <: Suspect end
+```
+
+The probability of finding `x` GSR particles on those not involved is assumed (reasonably enought) to not depend on
+the amount of time since the shooting.
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+P(::Type{NotInvolved}, t::Float64, x::Integer; λ, α, β, k) =
+  exp(-λ)*λ^x/factorial(big(x))
+
+# Use Benzaquen's results as the default values for the model parameters
+plot(x=(1:14), y=map(x->P(NotInvolved,0.0,x,λ = 0.216, α = 2.350, β = -0.096, k = 0.310),1:14), Geom.bar, Guide.xlabel("# of GSR Particles"), Guide.ylabel("Probability") )
+```
+
+The probability of finding `x` GSR particles on a person involved with the shooting is assumed to show a exponential
+decay with `t` time since the shooting.
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+P(::Type{Involved}, t::Float64, x::Integer; λ, α, β, k) =
+  (gamma(x+k)/(gamma(k)*factorial(big(x))))*((k/(k+exp(α+β*t)))^k)*((exp(α+β*t)/(k+exp(α+β*t)))^x)
+
+plot(x=(1:14), y=map(x->P(Involved,0.0, x, λ = 0.216, α = 2.350, β = -0.096, k = 0.310),1:14), Geom.bar, Guide.xlabel("# of GSR Particles"), Guide.ylabel("Probability") )
+```
+
+What is the likelyhood of finding at least one particle on a `Suspect` at time `t`?
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+Ppos(sus::Type{<:Suspect}, t, thresh; other...) = sum(P(sus,t,x; other...) for x in thresh:100)
+
+plot(
+  layer(t->Ppos(Involved, t, 1; λ = 0.216, α = 2.350, β = -0.096, k = 0.310), 0.0, 20.0, Theme(default_color="blue"), Geom.line),
+  layer(t->Ppos(NotInvolved, t, 1; λ = 0.216, α = 2.350, β = -0.096, k = 0.310), 0.0, 20.0, Theme(default_color="red"), Geom.line),
+  Guide.xlabel("Time (hrs)"), Guide.ylabel("P(x>1)"),
+  Guide.manual_color_key("Suspect", ["Involved", "Not involved"],["blue","red"])
+)
+```
+
+How about finding 4 GSR particles?  ie. a threshold of 4.
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+display(plot(
+  layer(t->Ppos(Involved, t, 4, λ = 0.216, α = 2.350, β = -0.096, k = 0.310), 0.0, 20.0, Theme(default_color="blue"), Geom.line),
+  layer(t->Ppos(NotInvolved, t, 4, λ = 0.216, α = 2.350, β = -0.096, k = 0.310), 0.0, 20.0, Theme(default_color="red"), Geom.line),
+  Guide.xlabel("Time (hrs)"), Guide.ylabel("P(x>1)"),
+  Guide.manual_color_key("Suspect", ["Involved", "Not involved"],["blue","red"])
+))
+```
+
+The likelyhood ratio `LR` is defined at a time `t` for a number of GSR particless `x` is defined as the ratio of the
+probability of finding `x` particles of the two types of suspect.
+```julia
+LR(ta::Type{<:Suspect},tb::Type{<:Suspect}, t::Float64, x::Integer; other...) =
+  P(ta, t, x;  other...) / P(tb, t, x; other...)
+```
+
+First, let's look at a small number of GSR particles (1).  The evidence is weak and the LR should approach zero as
+time -> ∞.
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+plot(t->LR(Involved, NotInvolved, t, 1; λ = 0.216, α = 2.350, β = -0.096, k = 0.310),1.0,100.0,
+  Guide.xlabel("Time (hrs)"), Guide.ylabel("P[Involved]/P[Not Involved]"))
+```
+
+First, let's look at a larger number of GSR particles (6).  The evidence is strong and if we find six particles after
+a long time this suggests a very large number (getting to be untenable) at t = 0.
+```julia; fig_height=4; fig_width=6; fig_ext=".svg";
+plot(t->LR(Involved, NotInvolved, t, 6; λ = 0.216, α = 2.350, β = -0.096, k = 0.310),1.0,100.0,
+  Guide.xlabel("Time (hrs)"), Guide.ylabel("P[Involved]/P[Not Involved]"))
+```
+
+##### What do the parameters mean?
+
+  * λ is simply the mean number of GSR particles on a `NotInvolved` person
+  * α and β parameterize the exponential loss of GSR particles with time
+  * The k is associated with the sampling process which is modeled with a binominal distribution (see below)
+
+##### About the binominal distribution
+Let's say that there are `n` items on our sample and that our measurement technique has a propability of success for
+each individual item of `p`, then if we repeat the measurement many times, the mean number of items we will measure
+will approach `n⋅p` and the histogram of measured values will be a binominal distribution.
+
+``PDF(k; n, p) = \binom{n}{k} p^k (1-p)^{n-k}``
+
+The Γ-function (gamma(x)) is a generalization of the factorial function.  For integers,
+
+``\Gamma(n) = (n-1)!``
+
+and
+
+``\binom{n}{k} = \frac{n!}{k!(n-k)!}``
+
+The binominal distribution assumes replacement - meaning that once an item has been discovered it is returned to the
+pool to be resampled.  This is an interesting choice.  I interprete the sampling process to be the combination of sample
+collection and sample analysis but it seems a little vague what this exactly means.

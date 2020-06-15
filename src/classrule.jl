@@ -49,7 +49,7 @@ Classify the rows in `zep`, row-by-row by calling the applying the `OrderedRuleS
 Zeppelin object.
 """
 function classify(zep::Zeppelin, sr::OrderedRuleSet)::Zeppelin
-    cat = categorical(append!(classnames(sr), ["Other", "Missing"]), false, ordered = true) # set up the levels
+    cat = categorical(append!(classnames(sr), ["Other", "Missing"]), compress=false, ordered = true) # set up the levels
     cat = cat[1:0] # delete the data but retain the levels
     errcx = 0
     missingElms = Dict(s => 0.0 for s in filter(

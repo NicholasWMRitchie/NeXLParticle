@@ -99,7 +99,7 @@ multiternary(zep, rows=rowsclass(zep,[ "Iron-90", "Iron-80", "Iron-70", "Iron-60
 
 Let's extract only the elemental data for particles 23 to 35
 ```julia
-asa(DataFrame, zep, rows=23:35, columns=allelms(zep))
+asa(DataFrame, zep, rows=23:35, columns=elms(zep))
 ```
 
 Let's extract only the morphology data for particles 2, 22, and 222

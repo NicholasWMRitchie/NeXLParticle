@@ -20,7 +20,6 @@ export spectrum # read a spectrum associate with a Zeppelin file (or missing)
 export eachparticle # The range of partice row indices
 export rowsmax, rowsmin, rowsclass
 export MORPH_COLS, COMP_COLS, CLASS_COLS
-export allelms
 export beamenergy, probecurrent, magdata
 export maxparticle
 

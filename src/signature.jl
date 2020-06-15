@@ -86,10 +86,10 @@ function signature( #
         )
         kzs[kr.element] = kr.kratio * kstdpure
     end
-    onorm = sum(value(kzs[elm]) for elm in keys(kzs))
+    onorm = sum(NeXLUncertainties.value(kzs[elm]) for elm in keys(kzs))
     res = Dict(elm => kzs[elm] / onorm for elm in special)
     notspecial = filter(elm -> !(elm in special) , keys(kzs))
-    norm = sum(value(kzs[elm]) for elm in notspecial)
+    norm = sum(NeXLUncertainties.value(kzs[elm]) for elm in notspecial)
     norm = norm > 0.0 ? norm : 1.0 # Rarely all elements are zero...
     merge!(res, Dict(elm => kzs[elm] / norm for elm in notspecial))
     return res
@@ -102,14 +102,14 @@ struct NSigmaCulling <: CullingRule
 end
 
 function cull(cr::NSigmaCulling, kr::KRatio)
-    k, s = value(kr.kratio), σ(kr.kratio)
+    k, s = NeXLUncertainties.value(kr.kratio), σ(kr.kratio)
     return k > cr.nsigma * s ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
 end
 
 struct NoCulling <: CullingRule end
 
 function cull(cr::NoCulling, kr::KRatio)
-    k = value(kr.kratio)
+    k = NeXLUncertainties.value(kr.kratio)
     return k > 0 ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, σ(kr.kratio)))
 end
 
@@ -156,8 +156,8 @@ function _quant(
             res = NeXLSpectrum.fit(unk, filt, filtrefs, true)
             counts[ir] = NeXLSpectrum.characteristiccounts(res, ignore)
             if writeResidual
-                filename = spectrumfilename(zep, row, "Residual", ".msa")
-                writeEMSA(filename, NeXLSpectrum.residual(res))
+                filename = joinpath(dirname(zep.headerfile), "Residual", filenumber(zep, row)*".msa")
+                savespectrum(ISOEMSA,filename, NeXLSpectrum.residual(res))
             end
             culled = map(kr -> cull(cullRule, kr), askratios(res))
             krvs[ir] = filter(kr -> kr.element in newcols, culled)
@@ -173,19 +173,19 @@ function _quant(
         s2 = copy(sig)
         foreach(j->delete!(s2,j), special) # Special can't be a FIRSTELM, ...
         firstElms = topN(s2, nfirst)
-        felm[ir, :] = map(j->j<=length(firstElms) && (value(firstElms[j].second) > 0.01) ? firstElms[j].first : missing, 1:4)
-        fsig[ir, :] = map(j->j<=length(firstElms) && (value(firstElms[j].second) > 0.01) ? 100.0 * value(firstElms[j].second) : missing, 1:4)
+        felm[ir, :] = map(j->j<=length(firstElms) && (NeXLUncertainties.value(firstElms[j].second) > 0.01) ? firstElms[j].first : missing, 1:4)
+        fsig[ir, :] = map(j->j<=length(firstElms) && (NeXLUncertainties.value(firstElms[j].second) > 0.01) ? 100.0 * NeXLUncertainties.value(firstElms[j].second) : missing, 1:4)
     end
     fourelms = DataFrame( #
-        FIRSTELM = felm[:,1], FIRSTPCT = value.(fsig[:,1]),
-        SECONDELM = felm[:,2], SECONDPCT = value.(fsig[:,2]), #
-        THIRDELM = felm[:,3],  THIRDPCT = value.(fsig[:,3]), #
-        FOURTHELM = felm[:,4], FOURTHPCT = value.(fsig[:,4]), #
+        FIRSTELM = felm[:,1], FIRSTPCT = NeXLUncertainties.value.(fsig[:,1]),
+        SECONDELM = felm[:,2], SECONDPCT = NeXLUncertainties.value.(fsig[:,2]), #
+        THIRDELM = felm[:,3],  THIRDPCT = NeXLUncertainties.value.(fsig[:,3]), #
+        FOURTHELM = felm[:,4], FOURTHPCT = NeXLUncertainties.value.(fsig[:,4]), #
         COUNTS = counts) #
         # Return the uncertainties or not...
     cols = Pair{Symbol,AbstractVector{Union{Float64,Missing}}}[ ]
     # Handle missings...
-    asval(v) = ismissing(v) ? missing : value(v)
+    asval(v) = ismissing(v) ? missing : NeXLUncertainties.value(v)
     asσ(v) = ismissing(v) ? missing : σ(v)
     for (col, elm) in enumerate(newcols)
         push!(cols, convert(Symbol,elm) => asval.(quant[:,col]))
@@ -208,8 +208,8 @@ function NeXLMatrixCorrection.quantify(zep::Zeppelin,
     withUncertainty::Bool = true)
     qr = _quant(zep,det,refs,rows,strip,special,cullRule,writeResidual,withUncertainty)
     # Remove old items...
-    removecols = map(elm -> convert(Symbol, elm), zep.elms)
-    append!(removecols, map(elm -> Symbol("U_$(uppercase(elm.symbol))_"), zep.elms))
+    removecols = map(elm -> uppercase(elm.symbol), zep.elms)
+    append!(removecols, map(elm -> "U_$(uppercase(elm.symbol))_", zep.elms))
     append!(removecols, ALL_COMPOSITIONAL_COLUMNS)
     # append!(removecols, ALL_CLASS_COLUMNS)
     remaining = copy(zep.data[rows, filter(f -> !(f in removecols), names(zep.data))])

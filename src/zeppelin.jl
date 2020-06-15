@@ -26,7 +26,7 @@ struct Zeppelin
         new(
             headerfile,
             header,
-            filter(elm -> convert(Symbol,elm) in names(data), PeriodicTable.elements[1:94]),
+            filter(elm -> uppercase(elm.symbol) in names(data), PeriodicTable.elements[1:94]),
             Dict{String,String}(),
             data,
         )
@@ -49,7 +49,7 @@ function loadZep( hdzfilename::String)
         sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
         sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
         clsnames = append!(["--None--"], map(c -> header[c], sortedkeys))
-        for col in (:CLASS, :VERIFIEDCLASS)
+        for col in ("CLASS", "VERIFIEDCLASS")
             ic = findfirst(nm->nm==col, names(res))
             if !isnothing(ic)
                 cls = categorical(Union{String,Missing}[ clsnames... ], ordered=true)[1:0] # empty but with correct levels
@@ -58,16 +58,16 @@ function loadZep( hdzfilename::String)
                 insertcols!(res, ic, col=>cls)
             end
         end
-        for col in ( :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM)
+        for col in ( "FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
             ic = findfirst(nm->nm==col, names(res))
             if !isnothing(ic)
-                fee=categorical( Union{Element,Missing}[ elements[1:95]...],false,ordered=true)[1:0]
+                fee=categorical( Union{Element,Missing}[ elements[1:95]...],compress=false,ordered=true)[1:0]
                 foreach(z->push!(fee, z>0 ? elements[z] : missing), pxz[:,col])
                 select!(res, Not(ic))
                 insertcols!(res, ic, col=>fee)
             end
         end
-        for col in ( :XDAC, :YDAC, :TYPE_4ET_, :TYPE4ET )
+        for col in ( "XDAC", "YDAC", "TYPE_4ET_", "TYPE4ET" )
             ic = findfirst(nm->nm==col, names(res))
             if !isnothing(ic)
                 select!(res, Not(ic))
@@ -75,7 +75,7 @@ function loadZep( hdzfilename::String)
         end
         return res
     end
-    remapcolumnnames = Dict{String,String}(
+    remapcolumnnames = Dict(
         "PART#" => "NUMBER",
         "PARTNUM" => "NUMBER",
         "FIELD#" => "FIELD",
@@ -151,7 +151,7 @@ function loadZep( hdzfilename::String)
         missingstring="-",
         decimal='.'
     ) |> DataFrame
-    elms = filter(z -> convert(Symbol, z) in names(pxz), PeriodicTable.elements[1:94])
+    elms = filter(z -> uppercase(z.symbol) in names(pxz), PeriodicTable.elements[1:94])
     classes = Dict{String, String}(key=>header[key] for key in filter(f->startswith(f, "CLASS") && (f ≠ "CLASSES"),keys(header)))
     return (_massagehdz(header), elms, classes, _massagepxz(header, pxz))
 end
@@ -262,6 +262,12 @@ Base.lastindex(zep::Zeppelin, axis::Integer) = Base.lastindex(zep.data, axis)
 # Replace the default in PeriodicTable because it is too verbose...
 # Base.show(io::IO, elm::Element) = print(io, elm.symbol)
 
+
+function filenumber(zep::Zeppelin, row::Int)::String
+    tmp="$(zep.data[row,:NUMBER])"
+    return repeat('0',max(0,5-length(tmp)))*tmp
+end
+
 """
     spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ext::AbstractString=".tif")
 
@@ -269,8 +275,8 @@ Returns the name of the spectrum/image file for the particle in the specified ro
 """
 function spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ext::AbstractString=".tif")
     mag = hasproperty(zep.data, :MAG) ? convert(Int,trunc(zep.data[row, :MAG])) : 0
-    tmp = "$(zep.data[row, :NUMBER])"
     # First check if a spectrum file exists
+    tmp="$(zep.data[row,:NUMBER])"
     for n in 6:-1:4
         fn = joinpath(dirname(zep.headerfile), "$(dir)$(mag)", repeat('0',max(0,n-length(tmp)))*tmp*ext)
         if isfile(fn)
@@ -300,7 +306,7 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Miss
     file, at = spectrumfilename(zep, row, "MAG", ".tif"), missing
     if isfile(file)
         try
-            at = loadspectrum(ASPEXTIFF, file, withImgs = withImgs)
+            at = loadspectrum(ASPEXTIFF, file; withImgs = withImgs)
         catch err
             showerror(stderr, err)
             @info "$(file) does not appear to be a valid ASPEX spectrum TIFF."
@@ -330,62 +336,62 @@ function iszeppelin(filename::String)
 end
 
 function writeZep(zep::Zeppelin,  hdzfilename::String)
-    remapcolumnnames = Dict{Symbol,String}(
-        :NUMBER => "PART#\t1\tINT16",
-        :FIELD  => "FIELD#\t1\tINT16",
-        :MAGFIELD  => "MAGFIELD#\t1\tINT16",
-        :XABS  => "X_ABS\tmm\tFLOAT",
-        :YABS  => "Y_ABS\tmm\tFLOAT",
-        :XDAC  => "X_DAC\t1\tINT16",
-        :YDAC  => "Y_DAC\t1\tINT16",
-        :XFERET  => "X_FERET\tµm\tFLOAT",
-        :YFERET  => "Y_FERET\tµm\tFLOAT",
-        :DAVG  => "DAVE\tµm\tFLOAT",
-        :DMAX  => "DMAX\tµm\tFLOAT",
-        :DMIN  => "DMIN\tµm\tFLOAT",
-        :DPERP  => "DPERP\tµm\tFLOAT",
-        :ASPECT  =>"ASPECT\t1\tFLOAT",
-        :AREA  => "AREA\tµm²\tFLOAT",
-        :PERIMETER  => "PERIMETER\tµm\tFLOAT",
-        :ORIENTATION  => "ORIENTATION\tdeg\tFLOAT",
-        :LIVETIME  => "LIVE_TIME\ts\tFLOAT",
-        :FITQUAL  => "FIT_QUAL\t1\tFLOAT",
-        :MAG  => "MAG\t1\tINT16",
-        :VIDEO  => "VIDEO\t1\tINT16",
-        :IMPORTANCE  => "IMPORTANCE\t1\tINT16",
-        :COUNTS  => "COUNTS\t1\tFLOAT",
-        :MAGINDEX  => "MAG_INDEX\t1\tINT16",
-        :FIRSTELM  => "FIRST_ELEM\t1\tINT16",
-        :SECONDELM  => "SECOND_ELEM\t1\tINT16",
-        :THIRDELM  => "THIRD_ELEM\t1\tINT16",
-        :FOURTHELM  => "FOURTH_ELEM\t1\tINT16",
-        :COUNTS1  => "FIRST_CONC\tcounts\tFLOAT",
-        :COUNTS2  => "SECOND_CONC\tcounts\tFLOAT",
-        :COUNTS3  => "THIRD_CONC\tcounts\tFLOAT",
-        :COUNTS4  => "FOURTH_CONC\tcounts\tFLOAT",
-        :FIRSTPCT  => "FIRST_PCT\t%\tFLOAT",
-        :SECONDPCT  => "SECOND_PCT\t%\tFLOAT",
-        :THIRDPCT  => "THIRD_PCT\t%\tFLOAT",
-        :FOURTHPCT  => "FOURTH_PCT\t%\tFLOAT",
-        :TYPE4ET  => "TYPE(4ET#)\t1\tLONG",
-        :VOIDAREA  => "VOID_AREA\tµm²\tFLOAT",
-        :RMSVIDEO  => "RMS_VIDEO\t1\tINT16",
-        :FITQUAL  => "FIT_QUAL\t1\tFLOAT",
-        :VERIFIEDCLASS  => "VERIFIED_CLASS\t1\tINT16",
-        :EDGEROUGHNESS  => "EDGE_ROUGHNESS\t1\tFLOAT",
-        :COMPHASH  => "COMP_HASH\t1\tLONG",
-        :CLASS  => "PSEM_CLASS\t1\tINT16",
-        :TYPE_4ET_ => "Type[4ET]\t1\tLONG",
+    remapcolumnnames = Dict(
+        "NUMBER"=> "PART#\t1\tINT16",
+        "FIELD" => "FIELD#\t1\tINT16",
+        "MAGFIELD" => "MAGFIELD#\t1\tINT16",
+        "XABS" => "X_ABS\tmm\tFLOAT",
+        "YABS" => "Y_ABS\tmm\tFLOAT",
+        "XDAC" => "X_DAC\t1\tINT16",
+        "YDAC" => "Y_DAC\t1\tINT16",
+        "XFERET" => "X_FERET\tµm\tFLOAT",
+        "YFERET" => "Y_FERET\tµm\tFLOAT",
+        "DAVG" => "DAVE\tµm\tFLOAT",
+        "DMAX" => "DMAX\tµm\tFLOAT",
+        "DMIN" => "DMIN\tµm\tFLOAT",
+        "DPERP" => "DPERP\tµm\tFLOAT",
+        "ASPECT" =>"ASPECT\t1\tFLOAT",
+        "AREA" => "AREA\tµm²\tFLOAT",
+        "PERIMETER" => "PERIMETER\tµm\tFLOAT",
+        "ORIENTATION" => "ORIENTATION\tdeg\tFLOAT",
+        "LIVETIME" => "LIVE_TIME\ts\tFLOAT",
+        "FITQUAL" => "FIT_QUAL\t1\tFLOAT",
+        "MAG" => "MAG\t1\tINT16",
+        "VIDEO" => "VIDEO\t1\tINT16",
+        "IMPORTANCE" => "IMPORTANCE\t1\tINT16",
+        "COUNTS" => "COUNTS\t1\tFLOAT",
+        "MAGINDEX" => "MAG_INDEX\t1\tINT16",
+        "FIRSTELM" => "FIRST_ELEM\t1\tINT16",
+        "SECONDELM" => "SECOND_ELEM\t1\tINT16",
+        "THIRDELM" => "THIRD_ELEM\t1\tINT16",
+        "FOURTHELM" => "FOURTH_ELEM\t1\tINT16",
+        "COUNTS1" => "FIRST_CONC\tcounts\tFLOAT",
+        "COUNTS2" => "SECOND_CONC\tcounts\tFLOAT",
+        "COUNTS3" => "THIRD_CONC\tcounts\tFLOAT",
+        "COUNTS4" => "FOURTH_CONC\tcounts\tFLOAT",
+        "FIRSTPCT" => "FIRST_PCT\t%\tFLOAT",
+        "SECONDPCT" => "SECOND_PCT\t%\tFLOAT",
+        "THIRDPCT" => "THIRD_PCT\t%\tFLOAT",
+        "FOURTHPCT" => "FOURTH_PCT\t%\tFLOAT",
+        "TYPE4ET" => "TYPE(4ET#)\t1\tLONG",
+        "VOIDAREA" => "VOID_AREA\tµm²\tFLOAT",
+        "RMSVIDEO" => "RMS_VIDEO\t1\tINT16",
+        "FITQUAL" => "FIT_QUAL\t1\tFLOAT",
+        "VERIFIEDCLASS" => "VERIFIED_CLASS\t1\tINT16",
+        "EDGEROUGHNESS" => "EDGE_ROUGHNESS\t1\tFLOAT",
+        "COMPHASH" => "COMP_HASH\t1\tLONG",
+        "CLASS" => "PSEM_CLASS\t1\tINT16",
+        "TYPE_4ET_" => "Type[4ET]\t1\tLONG",
     )
-    merge!(remapcolumnnames, Dict( convert(Symbol,elm)  => "$(uppercase(elm.symbol))\t%(k)\tFLOAT" for elm in zep.elms))
-    merge!(remapcolumnnames, Dict( Symbol("U_$(uppercase(elm.symbol))_")  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in zep.elms))
+    merge!(remapcolumnnames, Dict( uppercase(elm.symbol) => "$(uppercase(elm.symbol))\t%(k)\tFLOAT" for elm in zep.elms))
+    merge!(remapcolumnnames, Dict( "U_$(uppercase(elm.symbol))_"  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in zep.elms))
     headeritems = copy(zep.header)
     # add back the element tags
     for (i,elm) in enumerate(zep.elms)
         headeritems["ELEM$(i-1)"] = "$(elm.symbol) $(z(elm)) 1"
     end
     headeritems["ELEMENTS"] = "$(length(zep.elms))"
-    if :CLASS in names(zep.data)
+    if "CLASS" in names(zep.data)
         clsdata=zep.data[:,:CLASS]
         for (i,cls) in enumerate(clsdata.pool.index[1:end])
             # println("CLASS$(i-1) => $cls")
@@ -407,13 +413,13 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
     zd = DataFrame(zep.data)
     # Replace categorical data with the index (either into CLASS# in header or z(elm))
     for (ic, col) in enumerate(names(zd))
-        if col in (:CLASS, :VERIFIEDCLASS, :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM )
+        if col in ("CLASS", "VERIFIEDCLASS", "FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
             coldata=zd[:,col]
             select!(zd,Not(ic))
-            if col in ( :CLASS, :VERIFIEDCLASS )
+            if col in ( "CLASS", "VERIFIEDCLASS" )
                 @assert coldata isa CategoricalArray "Whoops! $col is a $(typeof(zd[:,col]))"
                 insertcols!(zd, ic, col=>[ coldata.refs[i]-1  for i in eachindex(coldata) ]) # CLASS
-            elseif col in (:FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM )
+            elseif col in ("FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
                 insertcols!(zd, ic, col=>[ ismissing(elm) ? 0 : z(elm)  for elm in coldata ]) # Element
             else
                 @info "Unanticipated column $col"
@@ -531,7 +537,7 @@ Examples:
     # Plot ten largest by :DAVG
     plot(zep, rowsmax(zep, :DAVG, 10))
     # data from 100 most Iron-rich sorted by DAVG
-    asa(DataFrame, zep, rowsmax(zep, :FE, 100), sortCol=:DAVG)
+    rowsmax(DataFrame, zep, rowsmax(zep, :FE, 100), sortCol=:DAVG)
 """
 function rowsmax(zep::Zeppelin, col::Symbol; n::Int=10000000, classname::Union{Missing,AbstractString}=missing)
     if ismissing(classname)
@@ -555,7 +561,7 @@ Examples:
     # Plot ten smallest by :DAVG
     plot(zep, rowsmin(zep, :DAVG, 10))
     # data from 100 most Iron-rich sorted by DAVG
-    asa(DataFrame, zep, rowsmax(zep, :FE, 100), sortCol=:DAVG)
+    rowsmin(DataFrame, zep, rowsmax(zep, :FE, 100), sortCol=:DAVG)
 """
 function rowsmin(zep::Zeppelin, col::Symbol; n::Int=20, classname::Union{Missing,AbstractString}=missing)
     if ismissing(classname)
@@ -623,28 +629,22 @@ function multiternary(
     # Determine which elements to plot...
     zd = ismissing(rows) ? zep.data : zep.data[rows, :]
     df=DataFrame(Elm=Symbol[], Mean=Float64[])
-    for elm in filter(elm->!(elm in omit), zep.elms)
-        sy = convert(Symbol, elm)
-        push!(df, [sy, mean(zd[:,sy])])
-    end
+    foreach(elm->push!(df, [sy, mean(zd[:,convert(Symbol, elm)])]),  filter(elm->!(elm in omit), zep.elms))
     sort!(df, :Mean, rev=true)
     elms = df[:,:Elm][1:min(size(df,1),6)]
     NeXLParticle.multiternary(zd, elms, :CLASS, title=zep.header["DESCRIPTION"], palette=palette, norm=100.0, fontsize=fontsize, font=font)
 end
 
 
-const MORPH_COLS = [ :NUMBER, :XABS, :YABS, :DAVG, :DMIN, :DMAX, :DPERP, :PERIMETER, :AREA ]
-const CLASS_COLS = [ :CLASS, :VERIFIEDCLASS, :IMPORTANCE ]
-const COMP_COLS = [ :FIRSTELM, :FIRSTPCT, :SECONDELM, :SECONDPCT, :THIRDELM,
-    :THIRDPCT, :FOURTHELM, :FOURTHPCT, :COUNTS ]
-const ALL_ELMS = convert.(Symbol, elements[1:95])
+const MORPH_COLS = ( "NUMBER", "XABS", "YABS", "DAVG", "DMIN", "DMAX", "DPERP", "PERIMETER", "AREA" )
+const CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )
+const COMP_COLS = ( "FIRSTELM", "FIRSTPCT", "SECONDELM", "SECONDPCT", "THIRDELM", "THIRDPCT", "FOURTHELM", "FOURTHPCT", "COUNTS" )
+const ALL_ELMS = map(elm->uppercase(elm.symbol), elements[1:95])
 
-allelms(zep::Zeppelin) = intersect(ALL_ELMS, names(zep.data))
-
-const ALL_COMPOSITIONAL_COLUMNS = ( :FIRST, :FIRSTELM, :SECONDELM, :THIRDELM, :FOURTHELM, :FIRSTELM, :SECONDELM, :THIRDELM,
-   :FOURTHELM, :COUNTS1, :COUNTS2, :COUNTS3, :COUNTS4, :FIRSTPCT, :SECONDPCT, :THIRDPCT, :FOURTHPCT, :TYPE4ET, :COUNTS,
-   :FITQUAL, :COMPHASH )
-const ALL_CLASS_COLS = ( :CLASS, :VERIFIEDCLASS, :IMPORTANCE )
+const ALL_COMPOSITIONAL_COLUMNS = ( "FIRST", "FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM", "FIRSTELM", "SECONDELM",
+    "THIRDELM", "FOURTHELM", "COUNTS1", "COUNTS2", "COUNTS3", "COUNTS4", "FIRSTPCT", "SECONDPCT", "THIRDPCT",
+    "FOURTHPCT", "TYPE4ET", "COUNTS", "FITQUAL", "COMPHASH" )
+const ALL_CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )
 
 RJLG_ZEPPELIN=format"RJLG Zeppelin"
 

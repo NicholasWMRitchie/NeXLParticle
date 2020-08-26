@@ -1,5 +1,6 @@
 using LinearAlgebra: dot
 using OnlineStatsBase
+using Statistics
 
 function rca(img::AbstractArray, start::CartesianIndex, thresh::Function, nchords = 16)
     function measurechord(ci, slope)
@@ -86,14 +87,15 @@ end
 
 function rca(bs::Vector{Blob})
     function offrca(b)  # RCA offset to the original image coordinates
-        offci(bbi, r) = CartesianIndex[ CartesianIndex( map( i->ci.I[i] + bbi[i].start - 1, eachindex(ci.I))...) for ci in r ]
-        return [ offci(b.bounds.indices, r) for r in rca(b.mask, p->p, p->p) ]
+        offci(bbi, r) =
+            CartesianIndex[CartesianIndex(map(i -> ci.I[i] + bbi[i].start - 1, eachindex(ci.I))...) for ci in r]
+        return [offci(b.bounds.indices, r) for r in rca(b.mask, p -> p, p -> p)]
     end
-    return mapreduce(b->offrca(b), append!, bs)
+    return mapreduce(b -> offrca(b), append!, bs)
 end
 
 function colorizedimage(chords::Vector{Vector{CartesianIndex}}, img::AbstractArray)
-    ends = RGB(1.0,0.0,0.0)
+    ends = RGB(1.0, 0.0, 0.0)
     function drawchords(res::Array, chords::Vector{CartesianIndex}, cl::Color)
         function drawchord(res, ci1, ci2)
             dx, sx, xa = abs(ci2.I[2] - ci1.I[2]), ci1.I[2] < ci2.I[2] ? 1 : -1, ci1.I[2]
@@ -111,8 +113,8 @@ function colorizedimage(chords::Vector{Vector{CartesianIndex}}, img::AbstractArr
                 end
                 res[ya, xa] = cl
             end
-            res[ci1]=ends
-            res[ci2]=ends
+            res[ci1] = ends
+            res[ci2] = ends
         end
         lo2 = length(chords) ÷ 2
         for i = 1:lo2
@@ -139,18 +141,18 @@ end
 
 Take a `Vector{CartesianIndex}` from `rca(...)` and compute morphology metrics.
 """
-function metrics(chords::Vector{CartesianIndex}, scale=1.0)::Dict{Symbol,Float64}
+function metrics(chords::Vector{CartesianIndex}, scale = 1.0)::Dict{Symbol,Float64}
     lo2, lo4 = length(chords) ÷ 2, length(chords) ÷ 4
     len(a) = sqrt(dot(a, a))
     leni(i) = len(chords[i].I .- chords[i+lo2].I)
     triarea(a, b) = 0.5 * abs(a[1] * b[2] - a[2] * b[1]) # area of triangle with edges a and b
     s, extrema = Moments(), Extrema()
     dmax, imax = 0.0, -1
-    for i in 1:lo2
+    for i = 1:lo2
         d = leni(i)
-        if d>dmax
-            dmax=d
-            imax=i
+        if d > dmax
+            dmax = d
+            imax = i
         end
         fit!(extrema, d)
         fit!(s, d)
@@ -161,13 +163,13 @@ function metrics(chords::Vector{CartesianIndex}, scale=1.0)::Dict{Symbol,Float64
     yext, xext = Extrema(), Extrema()
     fit!(yext, chords[1].I[1])
     fit!(xext, chords[1].I[2])
-    for i in 2:length(chords)
+    for i = 2:length(chords)
         perim += len(chords[i].I .- chords[i-1].I)
         area += triarea(chords[i].I .- center, chords[i-1].I .- center)
         fit!(yext, chords[i].I[1])
         fit!(xext, chords[i].I[2])
     end
-    dperp = leni((imax -1 + lo4) % lo2 + 1)
+    dperp = leni((imax - 1 + lo4) % lo2 + 1)
     return Dict(
         :DMIN => scale * minimum(extrema),
         :DMAX => scale * maximum(extrema),
@@ -185,11 +187,11 @@ function metrics(chords::Vector{CartesianIndex}, scale=1.0)::Dict{Symbol,Float64
     )
 end
 
-function area(chords::Vector{CartesianIndex}, scale=1.0)
+function area(chords::Vector{CartesianIndex}, scale = 1.0)
     triarea(a, b) = 0.5 * abs(a[1] * b[2] - a[2] * b[1]) # area of triangle with edges a and b
     center = (chords[1].I[1], chords[length(chords)÷4+1].I[2])
     area = triarea(chords[1].I .- center, chords[end].I .- center)
-    for i in 2:length(chords)
+    for i = 2:length(chords)
         area += triarea(chords[i].I .- center, chords[i-1].I .- center)
     end
     return area

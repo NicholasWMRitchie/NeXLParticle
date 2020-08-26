@@ -273,7 +273,7 @@ end
 
 Returns the name of the spectrum/image file for the particle in the specified row.
 """
-function spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString="MAG", ext::AbstractString=".tif")
+function spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString = "MAG", ext::AbstractString = ".tif")
     mag = hasproperty(zep.data, :MAG) ? convert(Int,trunc(zep.data[row, :MAG])) : 0
     # First check if a spectrum file exists
     tmp="$(zep.data[row,:NUMBER])"
@@ -591,6 +591,7 @@ function rowsclass(zep::Zeppelin, classname::AbstractString; shuffle=false, n=10
     res = filter(i->zep.data[i,:CLASS]==classname, eachparticle(zep))
     return (shuffle ? Random.shuffle(res) : res)[intersect(eachindex(res),1:n)]
 end
+
 rowsclass(zep::Zeppelin, classnames::AbstractVector{<:AbstractString}; shuffle=false, n=1000000) =
     mapreduce(cn->rowsclass(zep, cn, shuffle=shuffle, n=n), union, classnames)
 

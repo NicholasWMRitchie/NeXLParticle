@@ -8,7 +8,7 @@ using DataFrames
 Island = Vector{Tuple{CartesianIndex,Int}}
 
 # This function converts the data values into bin index
-defbin(x) = floor(Integer, min(100.0, max(0.0, x)) * 25.0)
+defbin(x) = floor(Integer, min(1.0, max(0.0, x)) * 25.0)
 
 # Are two CartesianIndex(s) adjacent?
 adj(ci1::CartesianIndex, ci2::CartesianIndex) = sum(abs(ci1.I[i] - ci2.I[i]) for i in eachindex(ci1.I)) <= 1
@@ -211,8 +211,7 @@ function summarizeclusters(dc::DiluvianCluster; statistics=false)
   for (ii, cl) in enumerate(dc.clusters), lbli in eachindex(dc.labels)
     fit!(stats[cl,lbli],dc.data[lbli][ii])
   end
-  res = DataFrame()
-  insertcols!(res, "Count" => membercounts(dc))
+  res = DataFrame(Cluster=collect(1:len), Count=membercounts(dc))
   for lbli in eachindex(dc.labels)
     lbl = dc.labels[lbli]
     insertcols!(res,
@@ -233,15 +232,14 @@ end
     multiternary(dc::DiluvianCluster, cluster::Int)
 
 Plot the data from the specified cluster from most significant dimensions as ternary diagram.
-The most significant dimensions are the ones with the most variation.
 """
-function multiternary(dc::DiluvianCluster, clusters::Vector{Int}; maxitems=1000)
-  sts = [ ( OnlineStats.value(s.stats[2]), lbl) for (lbl, s) in clusterstats(dc, clusters) ]
+function multiternary(dc::DiluvianCluster, clusters::Vector{Int}; maxitems=1000, norm=1.0)
+  sts = [ ( OnlineStats.value(s.stats[1]), lbl) for (lbl, s) in clusterstats(dc, clusters) ]
   sort!(sts, lt=(a,b)->a[1]>b[1])
   cols = [ Symbol(st[2]) for st in sts ]
   df = mapreduce(cluster->asa(DataFrame,dc,cluster), vcat, clusters)
   insertcols!(df,:Randomizer=>randperm(nrow(df)))
   sort!(df, :Randomizer)
   df = nrow(df)>maxitems ? df[1:maxitems, :] : df
-  return multiternary(df, cols, :Cluster)
+  return multiternary(df, cols, :Cluster, norm=norm)
 end

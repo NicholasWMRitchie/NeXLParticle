@@ -35,6 +35,10 @@ highest bin in each island, then the islands are joined together into a larger i
 the threshold, the bin is added to the less island with the smaller highest bin.  So constructed, each island represents
 a cluster.  The clusters are assigned integer indexes starting at 1 and cluster assignments for each pixel are written
 to an `Array`.
+
+This algorithm is best for data like compositional data which is naturally normalized to a unity sum and for which
+each layer in the data is on an equivalent scale.  The algorithm can be extended to work with other data types or the
+data can be preprocessed to bring it onto an equivalent scale. 
 """
 struct DiluvianCluster
   labels::Vector

@@ -56,7 +56,7 @@ function multiternary(
                     datapts,
                     (
                         context(),
-                        Compose.circle(pa, pb, [L * 0.01]),
+                        Compose.circle(pa, pb, [L * 0.003]),
                         Compose.stroke(col),
                         Compose.fill("transparent"),
                         Compose.clip([v3, v2, v1]),

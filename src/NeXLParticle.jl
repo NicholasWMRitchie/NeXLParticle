@@ -71,6 +71,15 @@ export soille_watershed
 include("particlesegregation.jl")
 export Watershed
 
+include("diluvian.jl")
+export DiluvianCluster # Constructs the clusters from the data
+export asimage # As a colorized image
+export asmask # As a binary mask
+export membercounts # Number of items in each cluster
+export summarizeclusters # Statistics summarizing the clusters as a DataFrame
+export clusterstats # Statistics summarizing one or more clusters
+export clusters # The raw cluster assignments
+
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")
     @require Weave = "44d3d7a6-8a23-5bf8-98c5-b353f8df5ec9" include("weavesupport.jl")

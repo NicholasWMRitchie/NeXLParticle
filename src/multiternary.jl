@@ -105,9 +105,8 @@ function multiternary(
         )
     end
     v(v0, θ, off = 0.02) = (v0[1] + off * cos(θ), v0[2] - off * sin(θ))
-    center = (0.5, 0.5)
-    ops = []
-    for i = 2:length(cols)
+    center, ops, ncols = (0.5, 0.5), [], min(length(cols),6)
+    for i in 2:ncols
         sa, sb = cols[i-1], cols[i]
         θ = -π / 2 + π / 3 * (i - 2)
         append!(ops, ternary(data, sa, sb, v(center, θ), 0.42, θ))
@@ -124,5 +123,5 @@ function multiternary(
             ),
         )
     end
-    compose(context(), (context(), ops...), (context(), label(center, string.(cols), 0.48)), )
+    compose(context(), (context(), ops...), (context(), label(center, string.(cols[1:ncols]), 0.48)), )
 end

@@ -20,10 +20,8 @@ adj(cis1::Island, cis2::Island) = any(adj(ci[1], cis2) for ci in cis1)
 # The height of an island is the count in the first (highest) bin
 height(isl::Island) = isl[1][2]
 
-# Are two islands connected by the index `ci`?  Islands are connected if `ci` is adjacent to both and `n` is at least
-# thresh times the population of the height of both `isl1` and `isl2`.
-defconnects(ci::CartesianIndex, n::Int, isl1::Island, isl2::Island, thresh = 0.5) =
-  adj(ci, isl1) && adj(ci, isl2) && (n > thresh * height(isl1)) && (n > thresh * height(isl2))
+# Are two islands of heights `h1` and `h2` connected by the index `ci` of height `hi`?
+defconnects(ci::CartesianIndex, hi::Int, h1::Int, h2::Int, σ::Float64 = 3.0) = hi > min(h1, h2) - σ * sqrt(min(h1, h2))
 
 
 """
@@ -38,7 +36,7 @@ to an `Array`.
 
 This algorithm is best for data like compositional data which is naturally normalized to a unity sum and for which
 each layer in the data is on an equivalent scale.  The algorithm can be extended to work with other data types or the
-data can be preprocessed to bring it onto an equivalent scale. 
+data can be preprocessed to bring it onto an equivalent scale.
 """
 struct DiluvianCluster
   labels::Vector
@@ -56,16 +54,16 @@ struct DiluvianCluster
     connects::Function = defconnects,
   )
     @assert length(labels) == length(data) "length(labels) must equal length(data)"
-    @assert all(size(data[1])==size(datum) for datum in data[2:end]) "The arrays in data must all be the same size."
+    @assert all(size(data[1]) == size(datum) for datum in data[2:end]) "The arrays in data must all be the same size."
     islands = flood(buildhistogram(data, bin), connects)
     clusters = buildclusters(islands, data, bin)
     return new(labels, data, clusters, length(islands))
   end
 
-  function DiluvianCluster(labeleddata::Tuple{Any,Array}...; bin::Function=defbin, connects::Function = defconnects)
-    lbls = [ lbl for (lbl, arr) in labeleddata ]
-    data = [ arr for (lbl, arr) in labeleddata ]
-    return DiluvianCluster(lbls, data, bin=bin, connects=connects)
+  function DiluvianCluster(labeleddata::Tuple{Any,Array}...; bin::Function = defbin, connects::Function = defconnects)
+    lbls = [lbl for (lbl, arr) in labeleddata]
+    data = [arr for (lbl, arr) in labeleddata]
+    return DiluvianCluster(lbls, data, bin = bin, connects = connects)
   end
 end
 
@@ -84,55 +82,52 @@ end
 
 # Construct islands by joining adjacent bins unless there is a valley between peaks
 function flood(hist::Dict{CartesianIndex,Integer}, connects::Function)::Vector{Island}
-  # Sort by height
+  dist(ci, isl) = sum((ci.I .- isl[1][1].I) .^ 2)
+  # Sort by bins by height (highest first)
   shist = sort([(ci, n) for (ci, n) in hist], lt = (a, b) -> a[2] > b[2])
-  islands = Vector{Island}()
+  islands = Vector{Island}()  # Maintained in height(island) order (highest first)
   for (ci, n) in shist
     added = false
-    for i1 in eachindex(islands)
-      if added
-        break
-      end
-      for i2 in i1+1:length(islands)
-        if added
-          break
-        end
-        if connects(ci, n, islands[i1], islands[i2])
-          # add to taller and join islands
-          added = true
-          addto, delfrom = height(islands[i1]) > height(islands[i2]) ? (i1, i2) : (i2, i1)
-          append!(islands[addto], islands[delfrom])
-          push!(islands[addto], (ci, n))
-          deleteat!(islands, delfrom)
-        else
-          a1, a2 = adj(ci, islands[i1]), adj(ci, islands[i2])
-          added = a1 || a2
-          if a1 && a2
-            # Add to less high island
-            push!(islands[height(islands[i1]) < height(islands[i2]) ? i1 : i2], (ci, n))
-          elseif a1 # Add to island 1
-            push!(islands[i1], (ci, n))
-          elseif a2 # Add to island 2
-            push!(islands[i2], (ci, n))
+    for (i1, isl1) in enumerate(islands)
+      if adj(ci, isl1)
+        rm, h1 = [], height(isl1)
+        # Add ci to the closest adjacent peak
+        closest, cdist = isl1, dist(ci, isl1)
+        # Is ci adjacent to any other islands?
+        for i2 in i1+1:length(islands)
+          isl2 = islands[i2]
+          if adj(ci, isl2)
+            if connects(ci, n, h1, height(isl2))
+              append!(isl1, isl2)
+              push!(rm, i2)
+              # The bin ci connects isl1 to isl2 so always add it to isl1
+              closest, cdist = isl1, 0
+            else
+              if dist(ci, isl2) < cdist
+                # ci is closer to the peak of isl2 than closest
+                closest, cdist = isl2, dist(ci, isl2)
+              end
+            end
           end
         end
+        added = true
+        push!(closest, (ci, n))
+        deleteat!(islands, rm)
+        break
       end
     end
-    if !added # Create a e=new island
+    if !added # create a new Island which is shorter than all previous Islands
       push!(islands, [(ci, n)])
     end
   end
-  pixelcount = (island) -> sum( n for (_, n) in island)
-  return sort!(islands, lt = (a, b) -> pixelcount(a) > pixelcount(b))
+  binsum = isl -> sum(n for (_, n) in isl)
+  return sort!(islands, lt = (a, b) -> binsum(a) < binsum(b), rev = true)
 end
 
 # Build an array summarizing cluster membership
 function buildclusters(islands::Vector{Island}, data::Vector{<:Array}, bin::Function)::Array{UInt16}
   binindex = (ci, data, bin) -> CartesianIndex((bin(datum[ci]) for datum in data)...)
-  idxforci = Dict{CartesianIndex,UInt16}()
-  for i in eachindex(islands), ci in islands[i]
-    idxforci[ci[1]] = i
-  end
+  idxforci = Dict{CartesianIndex,UInt16}(ci => i for (i, island) in enumerate(islands) for (ci, _) in island)
   return map(ci -> idxforci[binindex(ci, data, bin)], CartesianIndices(data[1]))
 end
 
@@ -157,11 +152,11 @@ asimage(dc::DiluvianCluster) = asimage(dc, distinguishable_colors(length(dc), co
 Create a DataFrame with the data from each pixel in `cluster`.
 """
 function NeXLUncertainties.asa(::Type{DataFrame}, dc::DiluvianCluster, cluster::Int)::DataFrame
-  cis = collect(filter(ci->dc.clusters[ci]==cluster, CartesianIndices(dc.clusters)))
-  df = DataFrame(Cluster = [ cluster for _ in cis ], Index=cis)
+  cis = collect(filter(ci -> dc.clusters[ci] == cluster, CartesianIndices(dc.clusters)))
+  df = DataFrame(Cluster = [cluster for _ in cis], Index = cis)
   for (i, lbl) in enumerate(dc.labels)
     datum = dc.data[i]
-    insertcols!(df, "$lbl" => [ datum[ci] for ci in cis ])
+    insertcols!(df, "$lbl" => [datum[ci] for ci in cis])
   end
   return df
 end
@@ -186,13 +181,12 @@ clusters(dc::DiluvianCluster) = dc.clusters
 
 How many data points are there in each cluster?
 """
-membercounts(dc::DiluvianCluster) =
-  [ count(v -> v == cl, dc.clusters) for cl in 1:length(dc) ]
+membercounts(dc::DiluvianCluster) = [count(v -> v == cl, dc.clusters) for cl = 1:length(dc)]
 
 
 function clusterstats(dc::DiluvianCluster, cluster::Int)
   stats = Dict(lbl => Series(Mean(), Variance(), Extrema()) for lbl in dc.labels)
-  cis = filter(ci->dc.clusters[ci]==cluster, CartesianIndices(dc.clusters))
+  cis = filter(ci -> dc.clusters[ci] == cluster, CartesianIndices(dc.clusters))
   for (i, lbl) in enumerate(dc.labels)
     fit!(stats[lbl], (dc.data[i][ci] for ci in cis))
   end
@@ -202,48 +196,49 @@ end
 function clusterstats(dc::DiluvianCluster, clusters::Vector{Int})
   cls = Set(clusters)
   stats = Dict(lbl => Series(Mean(), Variance(), Extrema()) for lbl in dc.labels)
-  cis = filter(ci->dc.clusters[ci] in cls, CartesianIndices(dc.clusters))
+  cis = filter(ci -> dc.clusters[ci] in cls, CartesianIndices(dc.clusters))
   for (i, lbl) in enumerate(dc.labels)
     fit!(stats[lbl], (dc.data[i][ci] for ci in cis))
   end
   return stats
 end
 
-function summarizeclusters(dc::DiluvianCluster; statistics=false)
-  len=length(dc)
-  stats = [ Series(Mean(), Variance(), Extrema()) for cl in 1:length(dc), lbl in dc.labels ]
+function summarizeclusters(dc::DiluvianCluster; statistics = false)
+  len = length(dc)
+  stats = [Series(Mean(), Variance(), Extrema()) for cl = 1:length(dc), lbl in dc.labels]
   for (ii, cl) in enumerate(dc.clusters), lbli in eachindex(dc.labels)
-    fit!(stats[cl,lbli],dc.data[lbli][ii])
+    fit!(stats[cl, lbli], dc.data[lbli][ii])
   end
-  res = DataFrame(Cluster=collect(1:len), Count=membercounts(dc))
+  res = DataFrame(Cluster = collect(1:len), Count = membercounts(dc))
   for lbli in eachindex(dc.labels)
     lbl = dc.labels[lbli]
-    insertcols!(res,
-      "$lbl" => [ OnlineStats.value(stats[cl, lbli].stats[1]) for cl in 1:len ])
+    insertcols!(res, "$lbl" => [OnlineStats.value(stats[cl, lbli].stats[1]) for cl = 1:len])
     if statistics
-      insertcols!(res,
-        "σ[$lbl]" => [ sqrt(OnlineStats.value(stats[cl, lbli].stats[2])) for cl in 1:len ])
-      insertcols!(res,
-        "min[$lbl]" => [ minimum(stats[cl, lbli].stats[3]) for cl in 1:len ])
-      insertcols!(res,
-        "max[$lbl]" => [ maximum(stats[cl, lbli].stats[3]) for cl in 1:len ])
+      insertcols!(res, "σ[$lbl]" => [sqrt(OnlineStats.value(stats[cl, lbli].stats[2])) for cl = 1:len])
+      insertcols!(res, "min[$lbl]" => [minimum(stats[cl, lbli].stats[3]) for cl = 1:len])
+      insertcols!(res, "max[$lbl]" => [maximum(stats[cl, lbli].stats[3]) for cl = 1:len])
     end
   end
   return res
 end
 
 """
-    multiternary(dc::DiluvianCluster, cluster::Int)
+    multiternary(dc::DiluvianCluster, cluster::Int; maxitems=1000, norm=1.0)
 
 Plot the data from the specified cluster from most significant dimensions as ternary diagram.
+`maxitems` limits the total number of points plotted when there are a very large number of data points.
+`norm` is useful if the data is normalized to something other than unity.
 """
-function multiternary(dc::DiluvianCluster, clusters::Vector{Int}; maxitems=1000, norm=1.0)
-  sts = [ ( OnlineStats.value(s.stats[1]), lbl) for (lbl, s) in clusterstats(dc, clusters) ]
-  sort!(sts, lt=(a,b)->a[1]>b[1])
-  cols = [ Symbol(st[2]) for st in sts ]
-  df = mapreduce(cluster->asa(DataFrame,dc,cluster), vcat, clusters)
-  insertcols!(df,:Randomizer=>randperm(nrow(df)))
+function multiternary(dc::DiluvianCluster, clusters::Vector{Int}; maxitems = 1000, norm = 1.0, palette = nothing)
+  sts = [(OnlineStats.value(s.stats[1]), lbl) for (lbl, s) in clusterstats(dc, clusters)]
+  sort!(sts, lt = (a, b) -> a[1] > b[1])
+  cols = [Symbol(st[2]) for st in sts]
+  df = mapreduce(cluster -> asa(DataFrame, dc, cluster), vcat, clusters)
+  insertcols!(df, :Randomizer => randperm(nrow(df)))
   sort!(df, :Randomizer)
-  df = nrow(df)>maxitems ? df[1:maxitems, :] : df
-  return multiternary(df, cols, :Cluster, norm=norm)
+  df = nrow(df) > maxitems ? df[1:maxitems, :] : df
+  if isnothing(palette)
+    palette = distinguishable_colors(length(dc), colorant"yellow")[clusters]
+  end
+  return multiternary(df, cols, :Cluster, norm = norm, withcount = false, palette = palette)
 end

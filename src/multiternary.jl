@@ -1,6 +1,7 @@
 using Compose
 using Colors
 using DataFrames
+using Random: shuffle!
 
 const TernBack = RGB(253 / 255, 253 / 255, 241 / 255)
 
@@ -24,6 +25,7 @@ function multiternary(
     font = "Verdana",
     fontsize = 5.0,
     norm = 1.0,
+    withcount = true,
 )
     # Draw an individual ternary diagram for cola and colb in data
     function ternary(data, cola, colb, v1, L, θ)
@@ -67,15 +69,28 @@ function multiternary(
                         labels,
                         (
                             context(),
-                            Compose.text(0.02, 0.54 + ilvl * 0.03, "$lvl - $(length(pts))"),
+                            Compose.text(0.02, 0.54 + ilvl * 0.03, withcount ? "$lvl - $(length(pts))" : "$lvl"),
                             Compose.fill(col),
                             Compose.font(font),
-                            Compose.fontsize(0.8*fontsize),
+                            Compose.fontsize(0.8 * fontsize),
                         ),
                     )
                 end
                 ilvl = (ilvl % length(palette)) + 1
             end
+        end
+        shuffle!(datapts) # randomize datapoint order
+        if length(labels) > 15
+            last = labels[end]
+            labels = labels[1:12]
+            push!(
+                labels,
+                (last[1], Compose.text(0.02, 0.54 + 13 * 0.03, "…"), Compose.fill(colorant"black"), last[4], last[5]),
+            )
+            push!(
+                labels,
+                (last[1], Compose.text(0.02, 0.54 + 14 * 0.03, last[2].primitives[1].value), last[3], last[4], last[5]),
+            )
         end
         return (
             context(),
@@ -105,8 +120,8 @@ function multiternary(
         )
     end
     v(v0, θ, off = 0.02) = (v0[1] + off * cos(θ), v0[2] - off * sin(θ))
-    center, ops, ncols = (0.5, 0.5), [], min(length(cols),6)
-    for i in 2:ncols
+    center, ops, ncols = (0.5, 0.5), [], min(length(cols), 6)
+    for i = 2:ncols
         sa, sb = cols[i-1], cols[i]
         θ = -π / 2 + π / 3 * (i - 2)
         append!(ops, ternary(data, sa, sb, v(center, θ), 0.42, θ))
@@ -119,9 +134,9 @@ function multiternary(
                 Compose.text(0.5, 0.03, title, hcenter, vtop),
                 Compose.fill("black"),
                 Compose.font(font),
-                Compose.fontsize(1.3*fontsize),
+                Compose.fontsize(1.3 * fontsize),
             ),
         )
     end
-    compose(context(), (context(), ops...), (context(), label(center, string.(cols[1:ncols]), 0.48)), )
+    compose(context(), (context(), ops...), (context(), label(center, string.(cols[1:ncols]), 0.48)))
 end

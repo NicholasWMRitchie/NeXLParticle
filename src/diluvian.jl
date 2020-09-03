@@ -223,14 +223,16 @@ function summarizeclusters(dc::DiluvianCluster; statistics = false)
 end
 
 """
-    multiternary(dc::DiluvianCluster, cluster::Int; maxitems=1000, norm=1.0)
+    multiternary(dc::DiluvianCluster, cluster::Int; maxitems=1000, norm=1.0, palette = nothing, variance = false)
 
 Plot the data from the specified cluster from most significant dimensions as ternary diagram.
 `maxitems` limits the total number of points plotted when there are a very large number of data points.
 `norm` is useful if the data is normalized to something other than unity.
+`palette` defaults to the same default palette as toimage(…) or can be specified as `Colorant[]`
+`variance` determines whether maximum mean value or maximum variance is used to select elements to plot
 """
-function multiternary(dc::DiluvianCluster, clusters::Vector{Int}; maxitems = 1000, norm = 1.0, palette = nothing)
-  sts = [(OnlineStats.value(s.stats[1]), lbl) for (lbl, s) in clusterstats(dc, clusters)]
+function multiternary(dc::DiluvianCluster, clusters::Vector{Int}; maxitems = 1000, norm = 1.0, palette = nothing, variance = false)
+  sts = [(OnlineStats.value(s.stats[variance ? 2 : 1]), lbl) for (lbl, s) in clusterstats(dc, clusters)]
   sort!(sts, lt = (a, b) -> a[1] > b[1])
   cols = [Symbol(st[2]) for st in sts]
   df = mapreduce(cluster -> asa(DataFrame, dc, cluster), vcat, clusters)

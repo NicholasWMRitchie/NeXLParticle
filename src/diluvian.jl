@@ -131,6 +131,7 @@ function buildclusters(islands::Vector{Island}, data::Vector{<:Array}, bin::Func
 end
 
 Base.length(dc::DiluvianCluster) = dc.count
+Base.eachindex(dc::DiluvianCluster) = Base.OneTo(dc.count)
 
 """
     asimage(dc::DiluvianCluster, colors::Vector{Colorant}, other = colorant"black")::Array{Colorant}
@@ -184,7 +185,7 @@ clusters(dc::DiluvianCluster) = dc.clusters
 How many data points are there in each cluster?
 """
 membercounts(dc::DiluvianCluster) = [count(v -> v == cl, dc.clusters) for cl = 1:length(dc)]
-
+Base.count(dc::DiluvianCluster, i::Integer) = count(v -> v == i, dc.clusters)
 
 function clusterstats(dc::DiluvianCluster, cluster::Int)
   stats = Dict(lbl => Series(Mean(), Variance(), Extrema()) for lbl in dc.labels)

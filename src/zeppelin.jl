@@ -393,7 +393,7 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
     headeritems["ELEMENTS"] = "$(length(zep.elms))"
     if "CLASS" in names(zep.data)
         clsdata=zep.data[:,:CLASS]
-        for (i,cls) in enumerate(clsdata.pool.index[1:end])
+        for (i,cls) in enumerate(levels(clsdata))
             # println("CLASS$(i-1) => $cls")
             headeritems["CLASS$(i-1)"]=cls
             headeritems["CLASSES"]="$(i+1)"
@@ -426,7 +426,7 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
             end
         end
     end
-    CSV.write(pxzfilename, zd, delim="\t", missingstring="-", writeheader=false)
+    CSV.write(pxzfilename, zd, delim="\t", missingstring="-", header=false)
 end
 
 function beamenergy(zep::Zeppelin, def=missing)
@@ -614,8 +614,12 @@ Base.filter(filt::Function, zep::Zeppelin) = filter(r->filt(zep.data[r,:]), each
 """
     multiternary(
         zep::Zeppelin;
+        rows = missing,
         omit = [ n"C", n"O" ],
-        palette = TernPalette)
+        palette = TernPalette,
+        fontsize = 12pt,
+        font = "Verdana",
+    )
 
 Plot the elemental data in `zep` to a multi-ternary diagram.
 """

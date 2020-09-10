@@ -1,4 +1,3 @@
-
 using Colors
 using OnlineStats
 using DataFrames
@@ -144,7 +143,9 @@ automatically.
 asimage(dc::DiluvianCluster, colors::Vector{<:Colorant}, other = colorant"black")::Array{<:Colorant} =
   map(v -> get(colors, v, other), dc.clusters)
 
-asimage(dc::DiluvianCluster) = asimage(dc, distinguishable_colors(length(dc), colorant"yellow"))
+defaultpalette(dc::DiluvianCluster) = distinguishable_colors(length(dc), colorant"yellow")
+
+asimage(dc::DiluvianCluster) = asimage(dc, defaultpalette(dc))
 
 """
     asa(::Type{DataFrame}, dc::DiluvianCluster, cluster::Int)::DataFrame
@@ -166,7 +167,8 @@ end
 
 Get a Bool mask for the specified cluster
 """
-asmask(dc::DiluvianCluster, cluster::Int) = map(v -> v == cluster, dc.clusters)
+asmask(dc::DiluvianCluster, cluster::Int)::BitArray =
+  BitArray(dc.clusters[ci] == cluster for ci in CartesianIndices(dc.clusters))
 
 
 """
@@ -203,20 +205,24 @@ function clusterstats(dc::DiluvianCluster, clusters::Vector{Int})
   return stats
 end
 
-function summarizeclusters(dc::DiluvianCluster; statistics = false)
+function summarizeclusters(dc::DiluvianCluster; statistics = false, sorted = true)
   len = length(dc)
-  stats = [Series(Mean(), Variance(), Extrema()) for cl = 1:length(dc), lbl in dc.labels]
+  stats = [Series(Mean(), Variance(), Extrema()) for cl in 1:length(dc), lbl in dc.labels]
   for (ii, cl) in enumerate(dc.clusters), lbli in eachindex(dc.labels)
     fit!(stats[cl, lbli], dc.data[lbli][ii])
   end
   res = DataFrame(Cluster = collect(1:len), Count = membercounts(dc))
-  for lbli in eachindex(dc.labels)
-    lbl = dc.labels[lbli]
-    insertcols!(res, "$lbl" => [OnlineStats.value(stats[cl, lbli].stats[1]) for cl = 1:len])
+  sl = [ (i, dc.labels[i]) for i in eachindex(dc.labels)]
+  if sorted
+    sort!(sl , lt=(a,b)->a[2]<b[2])
+  end
+  for i in eachindex(sl)
+    (lbli, lbl) = sl[i]
+    insertcols!(res, "$lbl" => [OnlineStats.value(stats[cl, lbli].stats[1]) for cl in 1:len])
     if statistics
-      insertcols!(res, "σ[$lbl]" => [sqrt(OnlineStats.value(stats[cl, lbli].stats[2])) for cl = 1:len])
-      insertcols!(res, "min[$lbl]" => [minimum(stats[cl, lbli].stats[3]) for cl = 1:len])
-      insertcols!(res, "max[$lbl]" => [maximum(stats[cl, lbli].stats[3]) for cl = 1:len])
+      insertcols!(res, "σ[$lbl]" => [sqrt(OnlineStats.value(stats[cl, lbli].stats[2])) for cl in 1:len])
+      insertcols!(res, "min[$lbl]" => [minimum(stats[cl, lbli].stats[3]) for cl in 1:len])
+      insertcols!(res, "max[$lbl]" => [maximum(stats[cl, lbli].stats[3]) for cl in 1:len])
     end
   end
   return res

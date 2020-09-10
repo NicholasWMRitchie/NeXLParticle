@@ -646,10 +646,3 @@ const ALL_COMPOSITIONAL_COLUMNS = ( "FIRST", "FIRSTELM", "SECONDELM", "THIRDELM"
     "THIRDELM", "FOURTHELM", "COUNTS1", "COUNTS2", "COUNTS3", "COUNTS4", "FIRSTPCT", "SECONDPCT", "THIRDPCT",
     "FOURTHPCT", "TYPE4ET", "COUNTS", "FITQUAL", "COMPHASH" )
 const ALL_CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )
-
-RJLG_ZEPPELIN=format"RJLG Zeppelin"
-
-load(file::File{RJLG_ZEPPELIN}) = Zeppelin(file.filename)
-save(f::File{RJLG_ZEPPELIN}, zep) = writeZep(zep, file.filename)
-
-FileIO.add_format(RJLG_ZEPPELIN, iszeppelin, [ ".hdz" ])

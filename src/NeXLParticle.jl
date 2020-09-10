@@ -73,12 +73,17 @@ export Watershed
 
 include("diluvian.jl")
 export DiluvianCluster # Constructs the clusters from the data
-export asimage # As a colorized image
 export asmask # As a binary mask
 export membercounts # Number of items in each cluster
 export summarizeclusters # Statistics summarizing the clusters as a DataFrame
 export clusterstats # Statistics summarizing one or more clusters
 export clusters # The raw cluster assignments
+export asimage
+export defaultpalette
+
+include("labeled.jl")
+export labeledimage # Displays an image and caption.
+export labeledimages # Displays a grid of images and captions.
 
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")

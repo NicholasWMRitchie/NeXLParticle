@@ -2,8 +2,6 @@ using FileIO
 using Images
 using LinearAlgebra
 using Statistics
-using StatsBase
-
 
 """
 A Blob is a mask consisting of blocks of adjacent pixels meeting a threshold.

@@ -18,8 +18,8 @@ of the columns.
 """
 function multiternary(
     data::DataFrame,
-    cols::AbstractArray{Symbol},
-    clscol::Union{Symbol,Missing} = missing;
+    cols::AbstractArray,
+    clscol::Any = missing;
     title = missing,
     palette = TernPalette,
     font = "Verdana",
@@ -138,5 +138,5 @@ function multiternary(
             ),
         )
     end
-    compose(context(), (context(), ops...), (context(), label(center, string.(cols[1:ncols]), 0.48)))
+    compose(context(0.05, 0.0, 0.9, 0.9), (context(), ops...), (context(), label(center, string.(cols[1:ncols]), 0.48)))
 end

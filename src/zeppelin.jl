@@ -1,7 +1,6 @@
 using CSV
 using DataStructures
 using Random
-using StatsBase
 using DataAPI
 using StringEncodings
 
@@ -205,12 +204,10 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     minds = Float64[ ds.min ]
     medds = Float64[ ds.median ]
     maxds = Float64[ ds.max ]
-    sbcm = StatsBase.countmap(zep[:,:CLASS])
-    for (cn, cx) in sbcm
-        push!(clss,string(cn))
-        push!(szs, cx)
+    for cn in levels(zep[:,:CLASS])
+        push!(clss, string(cn))
         rows = rowsclass(zep,cn)
-        @assert length(rows)==cx
+        push!(szs, length(rows))
         ds = summarystats(zep[rows,dcol])
         push!(minds, ds.min)
         push!(medds, ds.median)

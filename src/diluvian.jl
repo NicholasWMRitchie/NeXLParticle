@@ -1,5 +1,5 @@
 using Colors
-using OnlineStats: value, Series, Mean, Variance, Extrema, fit!, maximum, minimum
+import OnlineStats
 using DataFrames
 
 # Islands are collects of adjacent CartesianIndex with their population count.  The first CartesianIndex is maintained

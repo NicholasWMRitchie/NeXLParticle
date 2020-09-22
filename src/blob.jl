@@ -225,7 +225,7 @@ function splitblob(b::Blob, p1::CartesianIndex, p2::CartesianIndex)
 end
 
 """
-    separate(b::Blob, concavity=0.5)::Vector{Blob}
+    separate(b::Blob, concavity = 0.42, withinterior = true)::Vector{Blob}
 
 Break b into many Blob(s) by looking for concave regions on the perimeter
 and joining them with a short(ish) line.
@@ -233,8 +233,8 @@ and joining them with a short(ish) line.
 function separate(b::Blob, concavity = 0.42, withinterior = true)::Vector{Blob}
     modn(bb, i) = (i + length(bb.psteps) - 1) % length(bb.psteps) + 1
     # In the concatity vector, find peaks of positive regions
-    function findmaxes(c::Vector{Float64}, minwidth::Int, concav::Float64)::Vector{Int}
-        first, st, maxi, maxes = c[1] > 0.0 ? -1 : 0, 0, 0, Int[]
+    function findmaxes(c::Vector{Float64}, minwidth::Int, concav::Float64, sym::Int)::Vector{Tuple{Int,Int}}
+        first, st, maxi, maxes = c[1] > 0.0 ? -1 : 0, 0, 0, Tuple{Int,Symbol}[]
         for i in eachindex(c)
             if first < 0 # First keeps track of (possible) initial region above zero
                 first = c[i] > c[-first] ? -i : (c[i] < 0.0 ? -first : first)
@@ -247,7 +247,7 @@ function separate(b::Blob, concavity = 0.42, withinterior = true)::Vector{Blob}
                 maxi = c[i] > c[maxi] ? i : maxi
                 if c[i] < 0.0
                     if i - st >= minwidth && c[maxi] >= concav
-                        push!(maxes, maxi)
+                        push!(maxes, (maxi, sym))
                     end
                     st, maxi = 0, 0 # start new region of below zero concavity
                 end
@@ -257,7 +257,7 @@ function separate(b::Blob, concavity = 0.42, withinterior = true)::Vector{Blob}
             lenfirst = (st ≠ 0 ? length(c) - st : 0) + findfirst(i -> c[i] < 0.0, eachindex(c))
             maxi = st ≠ 0 ? (c[maxi] > c[first] ? maxi : first) : first
             if lenfirst >= minwidth && c[maxi] >= concav
-                push!(maxes, maxi)
+                push!(maxes, (maxi, sym))
             end
         end
         return maxes
@@ -265,25 +265,26 @@ function separate(b::Blob, concavity = 0.42, withinterior = true)::Vector{Blob}
     besti = -1
     if length(b.psteps) > 20
         p, c = perimeter(b), curvature(b, 4)
-        maxes = findmaxes(c, 4, concavity) # maximum
+        maxes = findmaxes(c, 4, concavity, 0) # maximum
         if withinterior
-            p, c = perimeter(b), curvature(b, 4)
-            maxes = findmaxes(c, 4, concavity) # maximum
-            for ir in interiorregions(b)
+            for (i, ir) in enumerate(interiorregions(b))
                 if area(ir) > 20
                     append!(p, perimeter(ir))
                     c = 0.0 .- curvature(ir, 4)
-                    append!(maxes, findmaxes(c, 4, concavity))
+                    append!(maxes, findmaxes(c, 4, concavity, i))
                 end
             end
         end
         # Find pairs of concavities to use as splitters
         bestj, bestlen = -1, 100000^2
-        for (i, ii) in enumerate(maxes), ij in maxes[i+1:end]
-            len = dot(p[ii].I .- p[ij].I, p[ii].I .- p[ij].I)
-            # pick the shortest splitter
-            if len < bestlen
-                besti, bestj, bestlen = ii, ij, len
+        for (i, (ii, symi)) in enumerate(maxes), (ij, symj) in enumerate(maxes[i+1:end])
+            # Only break exterior to exterior, exterior to interior, interior to interior or from one interior to a different interior
+            if symi == 0 || symj == 0 || symi != symj
+                len = dot(p[ii].I .- p[ij].I, p[ii].I .- p[ij].I)
+                # pick the shortest splitter
+                if len < bestlen
+                    besti, bestj, bestlen = ii, ij, len
+                end
             end
         end
     end
@@ -352,6 +353,59 @@ function multiseparate(img::Array, threshes; score = scorer, concavity = 0.42, m
             if split
                 # Use each `becomes` only once
                 deleteat!(blobs, indexin(becomes, blobs))
+                append!(newbest, becomes) # split it up...
+            else
+                push!(newbest, bb)
+            end
+        end
+        best = newbest
+    end
+    return best
+end
+
+"""
+    multiseparate(img::Array, threshes, score; concavity=0.42, minarea = 10, dump = nothing)
+
+Uses multiple thresholds to attempt to find the best separation of the distinct blobs in the image.  The best blob b
+is defined as the one that produces particles that produce smaller `score(b)`.  So a blob will be split if splitting
+the blob will produce multiple blobs of lower scores. The default function 'scorer(b::Blob)' looks for more circular
+blobs.
+"""
+function multiseparate2(img::Array, threshes; score = scorer, concavity = 0.42, minarea = 10, dump = nothing)
+    function segmenter(th)
+        starters = blob(img, p -> p >= th)
+        return length(starters) > 0 ? #
+               filter(b -> area(b) > minarea, mapreduce(b -> separate(b, concavity), append!, starters)) : #
+               Blob[]
+    end
+    best, cx = segmenter(threshes[1]), 0
+    for th in threshes[2:end]
+        blobs, newbest = segmenter(th), Blob[]
+        # compare the new blobs to the best previous ones
+        for bb in best
+            # Find which `blobs` make up `bb`
+            becomes = filter(b -> commonarea(b, bb) / area(b) > 0.8, blobs)
+            # Should we split `bb` into `becomes`
+            split = length(becomes) > 1 && mean(score.(becomes)) < score(bb)
+            if (!isnothing(dump)) && (length(becomes) > 1)
+                open(dump * "[details].txt", "a") do io
+                    write(
+                        io,
+                        "$(basename(dump))[$(cx+=1)][split=$split]: before = $(score(bb)), becomes = $(score.(becomes)), pl = $(perimeterlength(bb)), ecd=$(ecd(bb,false))\n",
+                    )
+                end
+                FileIO.save(
+                    File(format"PNG", dump * "[$cx, before, $split].png"),
+                    NeXLParticle.colorizedimage([bb], img),
+                )
+                FileIO.save(
+                    File(format"PNG", dump * "[$cx, after, $split].png"),
+                    NeXLParticle.colorizedimage(becomes, img),
+                )
+            end
+            if split
+                # Use each `becomes` only once
+                # deleteat!(blobs, indexin(becomes, blobs))
                 append!(newbest, becomes) # split it up...
             else
                 push!(newbest, bb)

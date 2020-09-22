@@ -1,9 +1,36 @@
 using NeXLParticle
 using Test
+using Pkg
 using Pkg.Artifacts
 
 
-zeptest = artifact"zeptest"
+# This is the path to the Artifacts.toml we will manipulate
+artifacts_toml = joinpath(@__DIR__, "Artifacts.toml")
+
+# Query the `Artifacts.toml` file for the hash bound to the name "iris"
+# (returns `nothing` if no such binding exists)
+zep_hash = artifact_hash("zeptest", artifacts_toml)
+
+# If the name was not bound, or the hash it was bound to does not exist, create it!
+if zep_hash == nothing || !artifact_exists(zep_hash)
+    # create_artifact() returns the content-hash of the artifact directory once we're finished creating it
+    zep_hash = create_artifact() do artifact_dir
+        println("Downloading test data to $artifact_dir")
+        tarball = joinpath(artifact_dir, "zeptest.tar.gz")
+        download("https://drive.google.com/uc?export=download&id=1TZh4zbw2VY6QFlTfTpiPIG1U5uWepXRh",tarball)
+        Pkg.probe_platform_engines!()
+        Pkg.unpack(tarball, artifact_dir, verbose=true)
+        rm(tarball)
+    end
+    # Now bind that hash within our `Artifacts.toml`.  `force = true` means that if it already exists,
+    # just overwrite with the new content-hash.  Unless the source files change, we do not expect
+    # the content hash to change, so this should not cause unnecessary version control churn.
+    bind_artifact!(artifacts_toml, "zeptest", zep_hash)
+end
+
+# Get the path of the iris dataset, either newly created or previously generated.
+# this should be something like `~/.julia/artifacts/dbd04e28be047a54fbe9bf67e934be5b5e0d357a`
+zeptest = artifact_path(zep_hash)
 
 @testset "ZepTest" begin
     zep = Zeppelin(joinpath(zeptest,"test.hdz"))

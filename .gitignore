@@ -5,3 +5,4 @@ deps/deps.jl
 Manifest.toml
 weave/*.html
 weave/jl_*/*
+test/Artifacts.toml

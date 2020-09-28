@@ -97,28 +97,11 @@ end
 function colorizedimage(chords::Vector{Vector{CartesianIndex}}, img::AbstractArray)
     ends = RGB(1.0, 0.0, 0.0)
     function drawchords(res::Array, chords::Vector{CartesianIndex}, cl::Color)
-        function drawchord(res, ci1, ci2)
-            dx, sx, xa = abs(ci2.I[2] - ci1.I[2]), ci1.I[2] < ci2.I[2] ? 1 : -1, ci1.I[2]
-            dy, sy, ya = -abs(ci2.I[1] - ci1.I[1]), ci1.I[1] < ci2.I[1] ? 1 : -1, ci1.I[1]
-            err = dx + dy
-            while !((xa == ci2.I[2]) && (ya == ci2.I[1]))
-                e2 = 2err
-                if e2 >= dy
-                    err += dy
-                    xa += sx
-                end
-                if e2 <= dx
-                    err += dx
-                    ya += sy
-                end
-                res[ya, xa] = cl
-            end
-            res[ci1] = ends
-            res[ci2] = ends
-        end
         lo2 = length(chords) ÷ 2
         for i = 1:lo2
-            drawchord(res, chords[i], chords[i+lo2])
+            drawline(pt->res[pt...]=cl, chords[i], chords[i+lo2])
+            res[chords[i]]=ends
+            res[chords[i+lo2]]=ends
         end
         return res
     end

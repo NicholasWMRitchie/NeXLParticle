@@ -11,9 +11,9 @@ function askratios(ffr::FitResult)::Vector{KRatio}
                 res,
                 KRatio( #
                     lbl.xrays,
-                    ffr.label.spec.properties,
-                    lbl.spec.properties,
-                    lbl.spec[:Composition],
+                    ffr.label.spectrum.properties,
+                    lbl.spectrum.properties,
+                    lbl.spectrum[:Composition],
                     ffr.kratios[lbl],
                 ),
             )

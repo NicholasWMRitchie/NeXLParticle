@@ -4,9 +4,8 @@ using DataFrames
 using FileIO
 using Reexport
 using Requires
+using StatsBase
 
-@reexport using PeriodicTable
-@reexport using NeXLCore
 @reexport using NeXLSpectrum
 
 

@@ -29,15 +29,15 @@ function classify(zep::Zeppelin, catcls::CategoricalArray{String})::Zeppelin
     @assert length(catcls) == nrow(zep.data)
     # Figure out where to put the column...
     cols = collect(1:ncol(zep.data))
-    clscol = findfirst(n -> n == :CLASS, names(zep.data))
+    clscol = findfirst(n -> n == :CLASS, propertynames(zep.data))
     if !isnothing(clscol)
         cols = deleteat!(cols, clscol)
     else
-        clscols = findfirst(n -> n == :FIRSTELM, names(zep.data))
-        clscols = isnothing(clscols) ? ncols(zep.data) + 1 : clscols
+        tmp = findfirst(n -> n == :FIRSTELM, propertynames(zep.data))
+        clscol = isnothing(tmp) ? ncol(zep.data) + 1 : tmp
     end
     # Copy the data and insert the column
-    result = Zeppelin(zep.headerfile, zep.header, zep.data[:, cols])
+    result = Zeppelin(zep.headerfile, copy(zep.header), copy(zep.data[:, cols]))
     insertcols!(result.data, clscol, :CLASS => catcls)
     return result
 end
@@ -49,31 +49,26 @@ Classify the rows in `zep`, row-by-row by calling the applying the `OrderedRuleS
 Zeppelin object.
 """
 function classify(zep::Zeppelin, sr::OrderedRuleSet)::Zeppelin
-    cat = categorical(append!(classnames(sr), ["Other", "Missing"]), compress=false, ordered = true) # set up the levels
+    cat = categorical(append!(classnames(sr), ["Other", "Missing", "Error"]), compress=false, ordered = true) # set up the levels
     cat = cat[1:0] # delete the data but retain the levels
     errcx = 0
-    missingElms = Dict(s => 0.0 for s in filter(
-        sy -> !(sy in names(zep.data)),
-        map(z -> convert(Symbol, elements[z]), 1:95),
+    missingCols = Dict(s => 0.0 for s in filter(
+        sy -> !(sy in propertynames(zep.data)),
+        map(z -> convert(Symbol,elements[z]), 1:95),
     ))
     for row in eachparticle(zep)
         try
-            input = Dict(n => zep.data[row, n] for n in names(zep.data))
-            if all(map(v->!ismissing(v),values(input)))
-                merge!(input, missingElms)
+            input = Dict(n => zep.data[row, n] for n in propertynames(zep.data))
+#            if all(map(v->!ismissing(v),values(input)))
+                merge!(input, missingCols)
                 push!(cat, classify(sr, input))
-            else
-                push!(cat, "Missing")
-            end
+#            else
+#                push!(cat, "Missing")
+#            end
         catch err
             push!(cat, "Other")
             if (errcx += 1) <= 4
-                print("ERROR[$errcx]: ")
-                showerror(stdout, err)
-                println()
-                for st in stacktrace(catch_backtrace())[1:3]
-                    println(st)
-                end
+                @info "ERROR[$errcx]: " exception=(err, catch_backtrace())
             end
         end
     end
@@ -91,7 +86,7 @@ const NullRules = OrderedRuleSet("Null", ("Unclassified", inp -> true) )
 
 const BaseRules = OrderedRuleSet(
     "Base",
-    ("LowCounts", inp -> inp[:COUNTS] < 2000),
+    ("LowCounts", inp -> haskey(inp,:COUNTS) && inp[:COUNTS] < 2000),
     (
      "Maraging",
      inp -> (inp[:FIRSTELM] == n"Fe") &&

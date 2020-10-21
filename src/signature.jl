@@ -123,17 +123,36 @@ function _quant(
     special::Set{Element}, # Element for special treatment in signature
     cullRule::CullingRule,
     writeResidual::Bool,
-    withUncertainty::Bool
+    withUncertainty::Bool,
+    relocated::Bool
+)
+    # Create filtered references.  Not worth threading.
+    ffp = references(
+        [ reference(elm, spec, spec[:Composition]) for (elm, spec) in refs ],
+        det
+    )
+    _quant(zep, ffp, rows, strip, special, cullRule, writeResidual, withUncertainty, relocated)
+end
+
+
+function _quant(
+    zep::Zeppelin,
+    ffp::FilterFitPacket,
+    rows::Union{AbstractVector{Int},UnitRange{Int}},
+    strip::Set{Element}, # Elements to fit but not include in the result table.
+    special::Set{Element}, # Element for special treatment in signature
+    cullRule::CullingRule,
+    writeResidual::Bool,
+    withUncertainty::Bool,
+    relocated::Bool
 )
     sortedbysig(newcols, row) =
-         sort(collect(zip(newcols, row)),lt=(i1,i2)->!isless(i1[1]==n"O" ? 0.0 : i1[2],i2[1]==n"O" ? 0.0 : i2[2]))
-    # Build the filtered references
-    filt = buildfilter(det)
+            sort(collect(zip(newcols, row)),lt=(i1,i2)->!isless(i1[1]==n"O" ? 0.0 : i1[2],i2[1]==n"O" ? 0.0 : i2[2]))
     # Create filtered references.  Not worth threading.
-    filtrefs=mapreduce(elm->filterreference(filt, refs[elm], elm, refs[elm][:Composition]), append!, keys(refs))
-    e0, toa = beamenergy(zep), sameproperty([ ref for (elm, ref) in refs], :TakeOffAngle)
+    filt, filtrefs, det = ffp.filter, ffp.references, ffp.detector
+    e0, toa = beamenergy(zep), sameproperty([ ref.label.spectrum for ref in filtrefs], :TakeOffAngle)
     # Create a list of columns (by element)
-    newcols = sort(collect(filter(elm -> !(elm in strip), keys(refs))))
+    newcols = sort(collect(filter(elm -> !(elm in strip), unique(collect( element(ref.label) for ref in filtrefs)))))
     quant = Array{Union{UncertainValue,Missing}}(missing, length(rows), length(newcols))
     # quantify and tabulate each particle
     if writeResidual
@@ -147,7 +166,7 @@ function _quant(
     counts = Array{Union{Missing,Float64}}(missing, length(rows))
     Threads.@threads for ir in eachindex(rows)
         row = rows[ir]
-        unk = spectrum(zep, row, false)
+        unk = spectrum(zep, row, false, relocated)
         if !ismissing(unk)
             # Particle spectra are often missing critical data items...
             unk[:ProbeCurrent], unk[:LiveTime] = get(unk, :ProbeCurrent, 1.0), get(unk, :LiveTime, 1.0)
@@ -197,7 +216,8 @@ function _quant(
     return hcat(fourelms, quantRes)
 end
 
-function NeXLMatrixCorrection.quantify(zep::Zeppelin,
+function NeXLMatrixCorrection.quantify(
+    zep::Zeppelin,
     det::Detector,
     refs::Dict{Element,Spectrum},
     rows::Union{AbstractVector{Int},UnitRange{Int}}=eachparticle(zep);
@@ -205,8 +225,44 @@ function NeXLMatrixCorrection.quantify(zep::Zeppelin,
     special = Set{Element}( ( n"O", ) ), # Element for special treatment in signature
     cullRule::CullingRule = NSigmaCulling(3.0),
     writeResidual::Bool = true,
-    withUncertainty::Bool = true)
-    qr = _quant(zep,det,refs,rows,strip,special,cullRule,writeResidual,withUncertainty)
+    withUncertainty::Bool = true,
+    relocated::Bool = true)
+    qr = _quant(zep,det,refs,rows,strip,special,cullRule,writeResidual,withUncertainty, relocated)
+    # Remove old items...
+    removecols = map(elm -> uppercase(elm.symbol), zep.elms)
+    append!(removecols, map(elm -> "U_$(uppercase(elm.symbol))_", zep.elms))
+    append!(removecols, ALL_COMPOSITIONAL_COLUMNS)
+    # append!(removecols, ALL_CLASS_COLUMNS)
+    remaining = copy(zep.data[rows, filter(f -> !(f in removecols), names(zep.data))])
+    data = hcat(remaining, qr)
+    # Replace outdated header items
+    header = copy(zep.header)
+    headerfile =  joinpath(dirname(zep.headerfile),"npQuant.hdz") # So spectra and other path related items continue to work
+    delete!(header, "MAX_PARTICLE")
+    delete!(header, "MAX_RESIDUAL")
+    # Add/replace header items
+    for i in 1:1000
+        if !haskey(header, "ANCESTOR[$i]")
+            header["ANCESTOR[$i]"]=zep.headerfile
+            break
+        end
+    end
+    header["DATAFILES"] = replace(headerfile,r".[h|H][d|D][z|Z]$"=>".*")
+    header["VEC_FILE"] = "NeXLParticle"
+    return Zeppelin(headerfile, header, data)
+end
+
+function NeXLMatrixCorrection.quantify(
+    zep::Zeppelin,
+    ffp::FilterFitPacket,
+    rows::Union{AbstractVector{Int},UnitRange{Int}}=eachparticle(zep);
+    strip = Set{Element}( (n"C", ) ), # Elements to fit but not include in the result table.
+    special = Set{Element}( ( n"O", ) ), # Element for special treatment in signature
+    cullRule::CullingRule = NSigmaCulling(3.0),
+    writeResidual::Bool = true,
+    withUncertainty::Bool = true,
+    relocated::Bool = true)
+    qr = _quant(zep,ffp,rows,strip,special,cullRule,writeResidual,withUncertainty,relocated)
     # Remove old items...
     removecols = map(elm -> uppercase(elm.symbol), zep.elms)
     append!(removecols, map(elm -> "U_$(uppercase(elm.symbol))_", zep.elms))

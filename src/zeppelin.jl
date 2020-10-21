@@ -143,7 +143,7 @@ function loadZep( hdzfilename::String)
         end
     end
     pxz = CSV.File(
-        replace( hdzfilename, r".[h|H][d|D][z|Z]$" => ".pxz"),
+        replace(hdzfilename, r".[h|H][d|D][z|Z]$" => ".pxz"),
         header = columnnames(columns),
         delim='\t',
         normalizenames = true,
@@ -204,31 +204,34 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     minds = Float64[ ds.min ]
     medds = Float64[ ds.median ]
     maxds = Float64[ ds.max ]
-    for cn in levels(zep[:,:CLASS])
-        push!(clss, string(cn))
-        rows = rowsclass(zep,cn)
+    sbcm = StatsBase.countmap(zep[:,:CLASS])
+    for (cn, cx) in sbcm
+        rows = rowsclass(zep,String(cn))
+        #if length(rows)>0
+        push!(clss, String(cn))
         push!(szs, length(rows))
         ds = summarystats(zep[rows,dcol])
         push!(minds, ds.min)
         push!(medds, ds.median)
         push!(maxds, ds.max)
+        #end
     end
     dfres = DataFrame(Symbol("Class")=>clss, Symbol("Count")=>szs,Symbol("Min[$dcol]")=>minds, Symbol("Median[$dcol]")=>medds, Symbol("Max[$dcol]")=>maxds)
     # Add All elemental row
     ss = sortedstats(eachparticle(zep))
     elmdfs=DataFrame[ ]
-    uem, uef = Union{Element,Missing}, Union{Float64,Missing}
+    uem, uef = Union{String,Missing}, Union{Float64,Missing}
     for ne in 1:cnelms
         cols = Symbol.( [ "Elm[$ne]", "Min[$ne]", "Median[$ne]", "Max[$ne]" ])
         sst = ss[ne][2]
-        push!(elmdfs, DataFrame(cols[1]=>uem[ ss[ne][1] ], cols[2]=>uef[sst.min], cols[3]=>uef[sst.median], cols[4]=>uef[sst.max]))
+        push!(elmdfs, DataFrame(cols[1]=>uem[ symbol(ss[ne][1]) ], cols[2]=>uef[sst.min], cols[3]=>uef[sst.median], cols[4]=>uef[sst.max]))
     end
     for (cn, cx) in sbcm
         try
-            ss = sortedstats(rowsclass(zep, cn))
+            ss = sortedstats(rowsclass(zep, String(cn)))
             for ne in 1:cnelms
                 sst = ss[ne][2]
-                push!(elmdfs[ne], [ ss[ne][1], sst.min, sst.median, sst.max ])
+                push!(elmdfs[ne], [ symbol(ss[ne][1]), sst.min, sst.median, sst.max ])
             end
         catch
             for ne in 1:cnelms
@@ -241,7 +244,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
             insertcols!(dfres, size(dfres,2)+1, col=>elmdf[:,col])
         end
     end
-    return dfres # sort!(res,(:Count, :Class), rev=true)
+    return sort!(dfres, [:Count, :Class], rev=true)
 end
 
 
@@ -270,10 +273,18 @@ end
 
 Returns the name of the spectrum/image file for the particle in the specified row.
 """
-function spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString = "MAG", ext::AbstractString = ".tif")
+function spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString = "MAG", ext::AbstractString = ".tif", relocated=false)
     mag = hasproperty(zep.data, :MAG) ? convert(Int,trunc(zep.data[row, :MAG])) : 0
     # First check if a spectrum file exists
-    tmp="$(zep.data[row,:NUMBER])"
+    tmp=repr(zep.data[row,:NUMBER])
+    if relocated && isdir(joinpath(dirname(zep.headerfile),"RELOCATED"))
+        for n in 6:-1:4
+            fn = joinpath(dirname(zep.headerfile), "RELOCATED", repeat('0',max(0,n-length(tmp)))*tmp*ext)
+            if isfile(fn)
+                return fn
+            end
+        end
+    end
     for n in 6:-1:4
         fn = joinpath(dirname(zep.headerfile), "$(dir)$(mag)", repeat('0',max(0,n-length(tmp)))*tmp*ext)
         if isfile(fn)
@@ -299,8 +310,8 @@ abstract type ParticleClassifier end
 Returns the Spectrum (with images) associated with the particle at row.  If withImgs
 is true, the associated image or images are read.
 """
-function spectrum(zep::Zeppelin, row::Int, withImgs = true)::Union{Spectrum,Missing}
-    file, at = spectrumfilename(zep, row, "MAG", ".tif"), missing
+function spectrum(zep::Zeppelin, row::Int, withImgs = true, relocated=true)::Union{Spectrum,Missing}
+    file, at = spectrumfilename(zep, row, "MAG", ".tif", relocated), missing
     if isfile(file)
         try
             at = loadspectrum(ASPEXTIFF, file; withImgs = withImgs)
@@ -607,36 +618,6 @@ Example:
 
 """
 Base.filter(filt::Function, zep::Zeppelin) = filter(r->filt(zep.data[r,:]), eachparticle(zep))
-
-"""
-    multiternary(
-        zep::Zeppelin;
-        rows = missing,
-        omit = [ n"C", n"O" ],
-        palette = TernPalette,
-        fontsize = 12pt,
-        font = "Verdana",
-    )
-
-Plot the elemental data in `zep` to a multi-ternary diagram.
-"""
-function multiternary(
-        zep::Zeppelin;
-        rows = missing,
-        omit = [ n"C", n"O" ],
-        palette = TernPalette,
-        fontsize = 12pt,
-        font = "Verdana",
-)
-    # Determine which elements to plot...
-    zd = ismissing(rows) ? zep.data : zep.data[rows, :]
-    df=DataFrame(Elm=Symbol[], Mean=Float64[])
-    foreach(elm->push!(df, [sy, mean(zd[:,convert(Symbol, elm)])]),  filter(elm->!(elm in omit), zep.elms))
-    sort!(df, :Mean, rev=true)
-    elms = df[:,:Elm][1:min(size(df,1),6)]
-    NeXLParticle.multiternary(zd, elms, :CLASS, title=zep.header["DESCRIPTION"], palette=palette, norm=100.0, fontsize=fontsize, font=font)
-end
-
 
 const MORPH_COLS = ( "NUMBER", "XABS", "YABS", "DAVG", "DMIN", "DMAX", "DPERP", "PERIMETER", "AREA" )
 const CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )

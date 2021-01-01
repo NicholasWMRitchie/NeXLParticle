@@ -70,17 +70,16 @@ end
 Constructs an AlignIntermediary representing the results of comparing all the `data` against `datap`
 to attempt to find the best ( offset, rotation ) to match align `data` and `datap`.
 """
-function rough_align(data, datap, sx=:x, sy=:y, nrings=8, nθ=16)::AlignIntermediary
+function rough_align(data, xex, yex, datap, sx=:x, sy=:y, nrings=8, nθ=32)::AlignIntermediary
     # Find boundaries of datap
     x2ex, y2ex = extrema(datap[:,sx]), extrema(datap[:,sy])
-    radius = 0.5 * max(x2ex[2] - x2ex[1], y2ex[2] - y2ex[1])
+    radius = 0.5 * min(max(x2ex[2] - x2ex[1], y2ex[2] - y2ex[1]), max(xex[2] - xex[1], yex[2] - yex[1]))
     mask = calculate_rings(datap, 0.5 .* (x2ex[2] + x2ex[1], y2ex[2] + y2ex[1]), radius, nrings, nθ, sx, sy)
     # Sorting the data means one pass over the data set
     dfx = sort(data, sx)
-    xmin, xmax, step = 1, 1, 0.5 * radius / nrings
-    yex = extrema(data[:,sy])
+    xmin, xmax, step = 1, 1, radius / (3.0*nrings)
     # Construct a grid over the data area
-    xst, yst = dfx[1,sx]:step:dfx[end,sx], yex[1]:step:yex[2]
+    xst, yst = xex[1]:step:xex[2], yex[1]:step:yex[2]
     scores = zeros(Float64, (length(yst), length(xst)))
     angles = zeros(Int, (length(yst), length(xst)))
     for (xi, x) in enumerate(xst)
@@ -122,6 +121,10 @@ function rough_align(data, datap, sx=:x, sy=:y, nrings=8, nθ=16)::AlignIntermed
     end
     return AlignIntermediary(scores, angles, xst, yst, nθ)
 end
+function rough_align(data, datap, sx=:x, sy=:y, nrings=8, nθ=32)::AlignIntermediary
+    xex, yex = extrema(data[:, sx]), extrema(data[:,sy])
+    rough_align(data, xex, yex, datap, sx, sy, nrings, nθ)::AlignIntermediary
+end
 
 
 """
@@ -151,18 +154,18 @@ end
 Base.CartesianIndices(alint::AlignIntermediary) = CartesianIndices(alint.scores)
 
 """
-    coordinate(alint::AlignIntermediary, ma::CartesianIndex)
+    offset(alint::AlignIntermediary, ma::CartesianIndex)
 
-Returns the center at the specified CartesianIndex within `alint`. 
+Returns the offset at the specified CartesianIndex within `alint`. 
 """
-coordinate(alint::AlignIntermediary, ma::CartesianIndex) = (alint.xsteps[ma[2]], alint.ysteps[ma[1]])
+offset(alint::AlignIntermediary, ma::CartesianIndex) = (alint.xsteps[ma[2]], alint.ysteps[ma[1]])
 
 """
     angle(alint::AlignIntermediary, ma::CartesianIndex)
 
 Returns the center at the specified CartesianIndex within `alint`. 
 """
-angle(alint::AlignIntermediary, ma::CartesianIndex) = 2π * alint.angles[ma] / alint.nθ
+angle(alint::AlignIntermediary, ma::CartesianIndex) = 2π * (alint.angles[ma]+0.5) / alint.nθ
 
 """
     score(alint::AlignIntermediary, ma::CartesianIndex)
@@ -205,9 +208,21 @@ if align_example
 
     ai = rough_align(df, df2, :x, :y, 8, 32)
     ai = @time rough_align(df, df2, :x, :y, 8, 32)
+
     print("Fast: ")
     println([ score(ai, bb) for bb in findbest(ai) ])
-    println("$center vs. $([ coordinate(ai, bb) for bb in findbest(ai) ])")
+    println("$center vs. $([ offset(ai, bb) for bb in findbest(ai) ])")
+    println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai, bb)) for bb in findbest(ai) ])")
+
+    bst = findbest(ai)
+    off = offset(ai, bst[1])
+    xex, yex = extrema(df[:, :x]), extrema(df[:, :y])
+    sc = 0.1 * max(xex[2]-xex[1], yex[2]-yex[1])
+    ai = rough_align(df, (off[1]-sc, off[1]+sc), (off[2]-sc, off[2]+sc), df2, :x, :y, 8, 128)
+
+    print("Tighter: ")
+    println([ score(ai, bb) for bb in findbest(ai) ])
+    println("$center vs. $([ offset(ai, bb) for bb in findbest(ai) ])")
     println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai, bb)) for bb in findbest(ai) ])")
     spy(ai.scores)
     if align_slow

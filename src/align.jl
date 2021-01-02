@@ -3,18 +3,18 @@
 # datasets.
 using DataFrames
 using LinearAlgebra
-# using Optim
 
 """
-    calculate_rings(data, origin, radius, nrings, nθ, sx, sy)
+    calculate_rings(data, origin, radius, nrings, nθ, sx, sy, dup)
 
 Given a `data` set with `sx`, `sy` columns, compute a matrix which represents
 placing each particle within `radius` of `origin` into one of `nrings` equal-area
 rings divided into `nθ` angular slices.  The column `:s` is used to weight the
-individual particles. 
+individual particles. `dup` doubles the height of the result matrix and duplicates
+the top half below to optimize the shift calculation.
 """
-function calculate_rings(data, origin, radius, nrings, nθ, sx, sy)
-    res = zeros(Float64, (nθ, nrings))
+function calculate_rings(data, origin, radius, nrings, nθ, sx, sy, dup)
+    res = zeros(Float32, (dup ? 2nθ : nθ, nrings))
     for r in eachrow(data)
         rx, ry = r[sx] - origin[1], r[sy] - origin[2]
         # equal area rings ri ∈ ( 1:nrings )
@@ -27,7 +27,10 @@ function calculate_rings(data, origin, radius, nrings, nθ, sx, sy)
             res[θi, ri] += r[:s]
         end
     end
-    res
+    if dup
+        res[nθ+1:2nθ, :] = res[1:nθ, :]
+    end
+    return res
 end
 
 """
@@ -39,12 +42,8 @@ value is a tuple containing the index of the maximum angle range and the associa
 score.
 """
 function calculate_score(data, mask, origin, radius, nrings, nθ, sx, sy)
-    crd = calculate_rings(data, origin, radius, nrings, nθ, sx, sy)
-    # return findmax( [
-    #   sum( dot(crd[1:nθ-off+1, r], mask[off:nθ, r]) + dot(crd[nθ-off+2:nθ, r], mask[1:off-1, r])  #
-    #       for r in 1:nrings ) #
-    #           for off in 1:nθ ] )
-    return findmax([ dot(circshift(mask, 1 - off), crd) for off in 1:nθ ])
+    crd = calculate_rings(data, origin, radius, nrings, nθ, sx, sy, false)
+    return findmax( [ sum( dot(view(crd,:,r), view(mask, off:off+nθ-1, r)) for r in 1:nrings ) for off in 1:nθ ] )
 end
 
 """
@@ -74,7 +73,7 @@ function rough_align(data, xex, yex, datap, sx=:x, sy=:y, nrings=8, nθ=32)::Ali
     # Find boundaries of datap
     x2ex, y2ex = extrema(datap[:,sx]), extrema(datap[:,sy])
     radius = 0.5 * min(max(x2ex[2] - x2ex[1], y2ex[2] - y2ex[1]), max(xex[2] - xex[1], yex[2] - yex[1]))
-    mask = calculate_rings(datap, 0.5 .* (x2ex[2] + x2ex[1], y2ex[2] + y2ex[1]), radius, nrings, nθ, sx, sy)
+    mask = calculate_rings(datap, 0.5 .* (x2ex[2] + x2ex[1], y2ex[2] + y2ex[1]), radius, nrings, nθ, sx, sy, true)
     # Sorting the data means one pass over the data set
     dfx = sort(data, sx)
     xmin, xmax, step = 1, 1, radius / (3.0*nrings)
@@ -93,11 +92,11 @@ function rough_align(data, xex, yex, datap, sx=:x, sy=:y, nrings=8, nθ=32)::Ali
             ) - 1
         if xmax >= xmin
             # Sorting the data means one pass over the data set
-            @assert issorted(dfx[xmin:xmax, :], sx)
-            @assert xmin == 1 || dfx[xmin - 1, sx] < x - radius "$xmin : $(dfx[xmin - 1, sx]) !< $(x - radius)"
-            @assert xmin == nrow(dfx) + 1 || dfx[xmin, sx] >= x - radius
-            @assert xmax == nrow(dfx) || dfx[xmax, sx] < x + radius
-            @assert xmax == nrow(dfx) || dfx[xmax + 1, sx] > x + radius "$xmax : $(dfx[xmax + 1, sx]) !< $(x + radius)"
+            #@assert issorted(dfx[xmin:xmax, :], sx)
+            #@assert xmin == 1 || dfx[xmin - 1, sx] < x - radius "$xmin : $(dfx[xmin - 1, sx]) !< $(x - radius)"
+            #@assert xmin == nrow(dfx) + 1 || dfx[xmin, sx] >= x - radius
+            #@assert xmax == nrow(dfx) || dfx[xmax, sx] < x + radius
+            #@assert xmax == nrow(dfx) || dfx[xmax + 1, sx] > x + radius "$xmax : $(dfx[xmax + 1, sx]) !< $(x + radius)"
             dfy, ymin, ymax = sort(dfx[xmin:xmax, :], sy), 1, 1
             for (yi, y) in enumerate(yst)
                 ymin = something( 
@@ -109,11 +108,11 @@ function rough_align(data, xex, yex, datap, sx=:x, sy=:y, nrings=8, nθ=32)::Ali
                         nrow(dfy) + 1
                     ) - 1
                 if ymax >= ymin
-                    @assert issorted(dfy[ymin:ymax, :], sy)
-                    @assert ymin == 1 || dfy[ymin - 1, sy] < y - radius "$ymin : $(dfy[ymin - 1, sy]) !< $(y - radius)"
-                    @assert dfy[ymin, sy] >= y - radius
-                    @assert dfy[ymax, sy] < y + radius
-                    @assert ymax == nrow(dfy) || dfy[ymax + 1, sy] > y + radius "$ymax : $(dfy[ymax + 1, sy]) !< $(y + radius)"
+                    #@assert issorted(dfy[ymin:ymax, :], sy)
+                    #@assert ymin == 1 || dfy[ymin - 1, sy] < y - radius "$ymin : $(dfy[ymin - 1, sy]) !< $(y - radius)"
+                    #@assert dfy[ymin, sy] >= y - radius
+                    #@assert dfy[ymax, sy] < y + radius
+                    #@assert ymax == nrow(dfy) || dfy[ymax + 1, sy] > y + radius "$ymax : $(dfy[ymax + 1, sy]) !< $(y + radius)"
                     (scores[yi, xi], angles[yi, xi]) = calculate_score(dfy[ymin:ymax, :], mask, (x, y), radius, nrings, nθ, sx, sy)
                 end
             end
@@ -137,7 +136,7 @@ function rough_align_slow(data, datap, sx=:x, sy=:y, nrings=8, nθ=16)::AlignInt
     # Find boundaries of datap
     x2ex, y2ex = extrema(datap[:,sx]), extrema(datap[:,sy])
     radius = 0.5 * max(x2ex[2] - x2ex[1], y2ex[2] - y2ex[1])
-    mask = calculate_rings(datap, 0.5 .* (x2ex[2] + x2ex[1], y2ex[2] + y2ex[1]), radius, nrings, nθ, sx, sy)
+    mask = calculate_rings(datap, 0.5 .* (x2ex[2] + x2ex[1], y2ex[2] + y2ex[1]), radius, nrings, nθ, sx, sy, true)
     # Sorting the data means one pass over the data set
     step = 0.5 * radius / nrings
     xex, yex = extrema(data[:,sx]), extrema(data[:,sy])
@@ -182,10 +181,26 @@ Returns an array of indices into `ai` for which the score is greater than `f` ti
 """
 function findbest(ai::AlignIntermediary, f=0.8)
     tmp = sort(reshape(collect(CartesianIndices(ai.scores)), prod(size(ai.scores))), by=i -> ai.scores[i], rev=true)
-    i = findfirst(i -> ai.scores[tmp[i]] < f * ai.scores[tmp[1]], eachindex(tmp))
+    i = something(findfirst(i -> ai.scores[tmp[i]] < f * ai.scores[tmp[1]], eachindex(tmp)), length(tmp)+1)
     return tmp[1:i - 1]
 end
 
+
+function apply(datap, ai::AlignIntermediary, idx=1, xs=:x, ys=:y, reverse=false)
+    res = copy(datap)
+    bst = findbest(ai,0.0)[i]
+    θ, off = -angle(ai, bst[2]), offset(ai, bst[2])
+    rot = [ cos(θ) -sin(θ); sin(θ) cos(θ) ]
+    xps, yps = Float64[], Float64[]
+    for row in datap
+        (xp, yp) = [row[xs], row[ys] ] * rot .- off
+        push!(xps, xp)
+        push!(yps, yp)
+    end
+    res[xs] = xps
+    res[ys] = yps
+    return res
+end
 
 const align_example = true
 const align_slow = false
@@ -207,7 +222,7 @@ if align_example
     df2
 
     ai = rough_align(df, df2, :x, :y, 8, 32)
-    ai = @time rough_align(df, df2, :x, :y, 8, 32)
+    ai = @time rough_align(df, df2, :x, :y, 8, 360)
 
     print("Fast: ")
     println([ score(ai, bb) for bb in findbest(ai) ])
@@ -218,7 +233,7 @@ if align_example
     off = offset(ai, bst[1])
     xex, yex = extrema(df[:, :x]), extrema(df[:, :y])
     sc = 0.1 * max(xex[2]-xex[1], yex[2]-yex[1])
-    ai = rough_align(df, (off[1]-sc, off[1]+sc), (off[2]-sc, off[2]+sc), df2, :x, :y, 8, 128)
+    ai = @time rough_align(df, (off[1]-sc, off[1]+sc), (off[2]-sc, off[2]+sc), df2, :x, :y, 8, 128)
 
     print("Tighter: ")
     println([ score(ai, bb) for bb in findbest(ai) ])

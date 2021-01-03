@@ -80,6 +80,11 @@ export clusters # The raw cluster assignments
 export asimage
 export defaultpalette
 
+include("align.jl")
+export rough_align
+export AlignIntermediary
+export offset, score, findbest, align
+
 function __init__()
     @require Gadfly = "c91e804a-d5a3-530f-b6f0-dfbca275c004" include("gadflysupport.jl")
 end

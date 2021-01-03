@@ -1,8 +1,8 @@
 # Given two particle data sets collected on the same sample but at different
 # positions and rotations, find the offset and rotation which best aligns
 # datasets.
-using DataFrames
 using LinearAlgebra
+using LoopVectorization
 
 """
     calculate_rings(data, origin, radius, nrings, nθ, sx, sy, dup)
@@ -19,11 +19,11 @@ function calculate_rings(data, origin, radius, nrings, nθ, sx, sy, dup)
         rx, ry = r[sx] - origin[1], r[sy] - origin[2]
         # equal area rings ri ∈ ( 1:nrings )
         ri = floor(Int, nrings * ((ry^2 + rx^2) / radius^2)) + 1
-        @assert ri >= 1 
+        # @assert ri >= 1 
         if ri <= nrings
             # θi ∈ 1:nθ for θ ∈ 0:2π
             θi = floor(Int, nθ * modf((atan(ry, rx) + 2π) / (2π))[1]) + 1
-            @assert θi >= 1 && θi <= nθ
+            # @assert θi >= 1 && θi <= nθ
             res[θi, ri] += r[:s]
         end
     end
@@ -31,6 +31,14 @@ function calculate_rings(data, origin, radius, nrings, nθ, sx, sy, dup)
         res[nθ+1:2nθ, :] = res[1:nθ, :]
     end
     return res
+end
+
+function lvdot(a, b)
+    s = zero(eltype(a))
+    @avx for i ∈ eachindex(a, b)
+        s += a[i] * b[i]
+    end
+    s
 end
 
 """
@@ -43,7 +51,7 @@ score.
 """
 function calculate_score(data, mask, origin, radius, nrings, nθ, sx, sy)
     crd = calculate_rings(data, origin, radius, nrings, nθ, sx, sy, false)
-    return findmax( [ sum( dot(view(crd,:,r), view(mask, off:off+nθ-1, r)) for r in 1:nrings ) for off in 1:nθ ] )
+    return findmax( [ sum( lvdot(view(crd,:,r), view(mask, off:off+nθ-1, r)) for r in 1:nrings ) for off in 1:nθ ] )
 end
 
 """
@@ -69,9 +77,9 @@ end
 Constructs an AlignIntermediary representing the results of comparing all the `data` against `datap`
 to attempt to find the best ( offset, rotation ) to match align `data` and `datap`.
 """
-function rough_align(data, xex, yex, datap, sx=:x, sy=:y, nrings=8, nθ=32)::AlignIntermediary
+function rough_align(data, datap, sx=:x, sy=:y, nrings=8, nθ=32)::AlignIntermediary
     # Find boundaries of datap
-    x2ex, y2ex = extrema(datap[:,sx]), extrema(datap[:,sy])
+    xex, yex, x2ex, y2ex = extrema(data[:,sx]), extrema(data[:,sy]), extrema(datap[:,sx]), extrema(datap[:,sy])
     radius = 0.5 * min(max(x2ex[2] - x2ex[1], y2ex[2] - y2ex[1]), max(xex[2] - xex[1], yex[2] - yex[1]))
     mask = calculate_rings(datap, 0.5 .* (x2ex[2] + x2ex[1], y2ex[2] + y2ex[1]), radius, nrings, nθ, sx, sy, true)
     # Sorting the data means one pass over the data set
@@ -120,11 +128,6 @@ function rough_align(data, xex, yex, datap, sx=:x, sy=:y, nrings=8, nθ=32)::Ali
     end
     return AlignIntermediary(scores, angles, xst, yst, nθ)
 end
-function rough_align(data, datap, sx=:x, sy=:y, nrings=8, nθ=32)::AlignIntermediary
-    xex, yex = extrema(data[:, sx]), extrema(data[:,sy])
-    rough_align(data, xex, yex, datap, sx, sy, nrings, nθ)::AlignIntermediary
-end
-
 
 """
     rough_align(data, datap, nrings=8, nθ=16)::AlignIntermediate
@@ -164,7 +167,7 @@ offset(alint::AlignIntermediary, ma::CartesianIndex) = (alint.xsteps[ma[2]], ali
 
 Returns the center at the specified CartesianIndex within `alint`. 
 """
-angle(alint::AlignIntermediary, ma::CartesianIndex) = 2π * (alint.angles[ma]+0.5) / alint.nθ
+Base.angle(alint::AlignIntermediary, ma::CartesianIndex) = 2π*modf((alint.angles[ma]-1.0) / alint.nθ + 3.0)[1]
 
 """
     score(alint::AlignIntermediary, ma::CartesianIndex)
@@ -186,65 +189,18 @@ function findbest(ai::AlignIntermediary, f=0.8)
 end
 
 
-function apply(datap, ai::AlignIntermediary, idx=1, xs=:x, ys=:y, reverse=false)
+function align(datap, ai::AlignIntermediary, idx=1, xs=:x, ys=:y)
     res = copy(datap)
-    bst = findbest(ai,0.0)[i]
-    θ, off = -angle(ai, bst[2]), offset(ai, bst[2])
+    bst = findbest(ai,0.8)[idx]
+    θ, off = -angle(ai, bst), offset(ai, bst)
     rot = [ cos(θ) -sin(θ); sin(θ) cos(θ) ]
     xps, yps = Float64[], Float64[]
-    for row in datap
-        (xp, yp) = [row[xs], row[ys] ] * rot .- off
+    for row in eachrow(datap)
+        (xp, yp) = (rot * [ row[xs], row[ys] ]) .+ off
         push!(xps, xp)
         push!(yps, yp)
     end
-    res[xs] = xps
-    res[ys] = yps
+    res[:, xs] = xps
+    res[:, ys] = yps
     return res
-end
-
-const align_example = true
-const align_slow = false
-if align_example
-    using DataFrames, Gadfly
-    n = 10000
-    # Construct a randomized "particle position" dataset
-    df = DataFrame(x=100.0 .* (0.5 .- rand(n)), y=100.0 .* (0.5 .- rand(n)), s=[1 for _ in 1:n ])
-    # Construct a localized subset that we will then offset and rotate 
-    center, θ, rad = 50.0 .* (0.5 .- rand(2)), 2π * rand(), 5.0
-    df2 = DataFrame(x=Float64[], y=Float64[], s=Int[])
-    rot = [ cos(θ) -sin(θ); sin(θ) cos(θ) ]
-    for r in eachrow(df)
-        pp = rot * [ r[:x] - center[1], r[:y] - center[2] ]
-        if abs(pp[1]) < rad && abs(pp[2]) < rad
-            push!(df2, [pp..., r[:s]])
-        end
-    end
-    df2
-
-    ai = rough_align(df, df2, :x, :y, 8, 32)
-    ai = @time rough_align(df, df2, :x, :y, 8, 360)
-
-    print("Fast: ")
-    println([ score(ai, bb) for bb in findbest(ai) ])
-    println("$center vs. $([ offset(ai, bb) for bb in findbest(ai) ])")
-    println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai, bb)) for bb in findbest(ai) ])")
-
-    bst = findbest(ai)
-    off = offset(ai, bst[1])
-    xex, yex = extrema(df[:, :x]), extrema(df[:, :y])
-    sc = 0.1 * max(xex[2]-xex[1], yex[2]-yex[1])
-    ai = @time rough_align(df, (off[1]-sc, off[1]+sc), (off[2]-sc, off[2]+sc), df2, :x, :y, 8, 128)
-
-    print("Tighter: ")
-    println([ score(ai, bb) for bb in findbest(ai) ])
-    println("$center vs. $([ offset(ai, bb) for bb in findbest(ai) ])")
-    println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai, bb)) for bb in findbest(ai) ])")
-    spy(ai.scores)
-    if align_slow
-        ai2 = @time rough_align_slow(df, df2, :x, :y, 8, 32)
-        print("Slow: ")
-        println([ score(ai2, bb) for bb in findbest(ai2) ])
-        println("$center vs. $([ coordinate(ai2, bb) for bb in findbest(ai2) ])")
-        println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai2, bb)) for bb in findbest(ai2) ])")
-    end
 end

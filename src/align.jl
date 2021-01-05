@@ -3,6 +3,8 @@
 # datasets.
 using LinearAlgebra
 using LoopVectorization
+using CoordinateTransformations
+using StaticArrays
 
 """
     calculate_rings(data, origin, radius, nrings, nθ, sx, sy, dup)
@@ -153,28 +155,33 @@ function rough_align_slow(data, datap, sx=:x, sy=:y, nrings=8, nθ=16)::AlignInt
     return AlignIntermediary(scores, angles, xst, yst, nθ)
 end
 
-Base.CartesianIndices(alint::AlignIntermediary) = CartesianIndices(alint.scores)
+Base.CartesianIndices(ai::AlignIntermediary) = CartesianIndices(ai.scores)
 
 """
-    offset(alint::AlignIntermediary, ma::CartesianIndex)
+    offset(ai::AlignIntermediary, ma::CartesianIndex)
 
-Returns the offset at the specified CartesianIndex within `alint`. 
+Returns the offset at the specified CartesianIndex within `ai`. 
 """
-offset(alint::AlignIntermediary, ma::CartesianIndex) = (alint.xsteps[ma[2]], alint.ysteps[ma[1]])
-
-"""
-    angle(alint::AlignIntermediary, ma::CartesianIndex)
-
-Returns the center at the specified CartesianIndex within `alint`. 
-"""
-Base.angle(alint::AlignIntermediary, ma::CartesianIndex) = 2π*modf((alint.angles[ma]-1.0) / alint.nθ + 3.0)[1]
+offset(ai::AlignIntermediary, ma::CartesianIndex) = (ai.xsteps[ma[2]], ai.ysteps[ma[1]])
 
 """
-    score(alint::AlignIntermediary, ma::CartesianIndex)
+    angle(ai::AlignIntermediary, ma::CartesianIndex)
+
+Returns the center at the specified CartesianIndex within `ai`. 
+"""
+Base.angle(ai::AlignIntermediary, ma::CartesianIndex) = 2π*modf((ai.angles[ma]-1.0) / ai.nθ + 3.0)[1]
+
+function CoordinateTransformations.AffineMap(ai::AlignIntermediary, ma::CartesianIndex) 
+    rot = angle(ai, ma)
+    AffineMap(SA[ cos(rot) -sin(rot); sin(rot) cos(rot) ], SA[offset(ai,ma)...])
+end
+
+"""
+    score(ai::AlignIntermediary, ma::CartesianIndex)
 
 Returns the score at index `ma` 
 """
-score(alint::AlignIntermediary, ma::CartesianIndex) = alint.scores[ma]
+score(ai::AlignIntermediary, ma::CartesianIndex) = ai.scores[ma]
 
 
 """

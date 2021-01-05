@@ -3,6 +3,7 @@ using DataStructures
 using Random
 using DataAPI
 using StringEncodings
+using CoordinateTransformations
 
 Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 
@@ -30,9 +31,25 @@ struct Zeppelin
             data,
         )
     end
+    
+    function Zeppelin( #
+        headerfile::String,
+        header::Dict{String,String},
+        elms::Vector{Element},
+        classes::Dict{String,String}
+        data::DataFrame
+    )
+        new(
+            headerfile,
+            header,
+            elms,
+            classes,
+            data
+        )
+    end
 end
 
-Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.data))
+Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.elms), copy(z.classes), copy(z.data))
 
 function loadZep( hdzfilename::String)
     function _massagehdz(header)
@@ -619,7 +636,7 @@ Example:
 """
 Base.filter(filt::Function, zep::Zeppelin) = filter(r->filt(zep.data[r,:]), eachparticle(zep))
 
-const MORPH_COLS = ( "NUMBER", "XABS", "YABS", "DAVG", "DMIN", "DMAX", "DPERP", "PERIMETER", "AREA" )
+const MORPH_COLS = ( "NUMBER", "XABS", "YABS", "DAVG", "DMIN", "DMAX", "DPERP", "PERIMETER", "ORIENTATION", "AREA" )
 const CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )
 const COMP_COLS = ( "FIRSTELM", "FIRSTPCT", "SECONDELM", "SECONDPCT", "THIRDELM", "THIRDPCT", "FOURTHELM", "FOURTHPCT", "COUNTS" )
 const ALL_ELMS = map(elm->uppercase(elm.symbol), elements[1:95])
@@ -628,3 +645,19 @@ const ALL_COMPOSITIONAL_COLUMNS = ( "FIRST", "FIRSTELM", "SECONDELM", "THIRDELM"
     "THIRDELM", "FOURTHELM", "COUNTS1", "COUNTS2", "COUNTS3", "COUNTS4", "FIRSTPCT", "SECONDPCT", "THIRDPCT",
     "FOURTHPCT", "TYPE4ET", "COUNTS", "FITQUAL", "COMPHASH" )
 const ALL_CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )
+
+
+"""
+    translate(zep::Zeppelin, am::AffineMap)::Zeppelin
+
+Translates the XABS and YABS columns in `zep` by applying the AffineMap `am`.
+A copy of the original Zeppelin dataset is returned.
+"""
+function translate(zep::Zeppelin, am::AffineMap)::Zeppelin
+    res = copy(zep)
+    oldCoords = [ XYCoordinates(r[:XABS], r[:YABS]) for r in eachrow(zep.data) ]
+    newCoords = am.(oldCoordinates)
+    res[:, :XABS] = [ nc[1] for nc in newCoords ]
+    res[:, :YABS] = [ nc[2] for nc in newCoords ]
+    return res
+end

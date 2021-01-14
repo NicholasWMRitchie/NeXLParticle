@@ -36,7 +36,7 @@ struct Zeppelin
         headerfile::String,
         header::Dict{String,String},
         elms::Vector{Element},
-        classes::Dict{String,String}
+        classes::Dict{String,String},
         data::DataFrame
     )
         new(

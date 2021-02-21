@@ -172,7 +172,7 @@ function _quant(
             unk[:ProbeCurrent], unk[:LiveTime] = get(unk, :ProbeCurrent, 1.0), get(unk, :LiveTime, 1.0)
             unk[:BeamEnergy], unk[:TakeOffAngle] = get(unk, :BeamEnergy, e0), get(unk, :TakeOffAngle, toa)
             # Fit, cull and then compute the particle signature...
-            res = NeXLSpectrum.fit(unk, filt, filtrefs, true)
+            res = fit_spectrum(unk, filt, filtrefs, true)
             counts[ir] = NeXLSpectrum.characteristiccounts(res, ignore)
             if writeResidual
                 filename = joinpath(dirname(zep.headerfile), "Residual", filenumber(zep, row)*".msa")

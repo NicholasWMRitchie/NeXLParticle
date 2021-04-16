@@ -74,15 +74,6 @@ function loadZep( hdzfilename::String)
                 insertcols!(res, ic, col=>cls)
             end
         end
-        for col in ( "FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
-            ic = findfirst(nm->nm==col, names(res))
-            if !isnothing(ic)
-                fee=categorical( Union{Element,Missing}[ elements[1:95]...],compress=false,ordered=true)[1:0]
-                foreach(z->push!(fee, z>0 ? elements[z] : missing), pxz[:,col])
-                select!(res, Not(ic))
-                insertcols!(res, ic, col=>fee)
-            end
-        end
         for col in ( "XDAC", "YDAC", "TYPE_4ET_", "TYPE4ET" )
             ic = findfirst(nm->nm==col, names(res))
             if !isnothing(ic)

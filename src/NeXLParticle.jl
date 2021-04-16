@@ -5,6 +5,7 @@ using FileIO
 using Reexport
 using Requires
 using StatsBase
+using AxisArrays
 
 @reexport using NeXLSpectrum
 

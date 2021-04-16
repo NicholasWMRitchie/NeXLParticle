@@ -151,11 +151,16 @@ function perimeter(b::Blob)::Vector{CartesianIndex}
     return pts
 end
 
+function perimeter(b::Blob, img::AxisArray, p::Real=2)
+    perim = perimeter(b)
+    sum( norm(img, perim[i], perim[i == length(p) ? 1 : i+1], p) for i in eachindex(p) )
+end
+
 
 """
     perimeterlength(b::Blob)
 
-Compute the length of the blob perimeter.  Diagonals are √2 and straights are 1.
+Compute the length of the blob perimeter in pixels.  Diagonals are √2 and straights are 1.
 """
 perimeterlength(b::Blob) = length(b.psteps) > 0 ? mapreduce(st -> sqrt(dot(st, st)), +, b.psteps) : 4.0
 
@@ -279,7 +284,7 @@ end
 
 A default function to score a blob as a candidate particle.  Smaller scores are more particle like.
 """
-scorer(b::Blob, minarea = 100) = # perimeter/π == ecd for a circle
+scorer(b::Blob, img::AbstractArray, minarea = 100) = # perimeter/π == ecd for a circle
     (area(b) < minarea ? 100.0 : minarea / area(b)) + perimeterlength(b) / (π * ecd(b, false))
 
 """
@@ -297,7 +302,7 @@ is defined as the one that produces particles that produce smaller `score(b)`.  
 the blob will produce multiple blobs of lower scores. The default function 'scorer(b::Blob)' looks for more circular
 blobs.
 """
-function multiseparate(img::Array, threshes; score = scorer, concavity = 0.42, minarea = 10, dump = nothing)::Vector{Blob}
+function multiseparate(img::AbstractArray, threshes; score = scorer, concavity = 0.42, minarea = 10, dump = nothing)::Vector{Blob}
     function segmenter(th)
         starters = blob(img, p -> p >= th)
         return length(starters) > 0 ? #
@@ -312,7 +317,7 @@ function multiseparate(img::Array, threshes; score = scorer, concavity = 0.42, m
             # Find which `blobs` make up `bb`
             becomes = filter(b -> commonarea(b, bb) / area(b) > 0.8, blobs)
             # Should we split `bb` into `becomes`
-            split = length(becomes) > 1 && mean(score.(becomes)) < score(bb)
+            split = length(becomes) > 1 && mean(map(b->score(b, img), becomes)) < score(bb, img)
             if (!isnothing(dump)) && (length(becomes) > 1)
                 open(dump * "[details].txt", "a") do io
                     write(
@@ -348,8 +353,17 @@ end
    area(b::Blob)
 
 Area of the Blob in pixel count.
+
+area(b::Blob, img::AxisArray)
+
+Area of the Blob in the units associated with `img`.  Assumes that each pixel in the image
+is the same size.
 """
 area(b::Blob) = count(b.mask)
+function area(b::Blob, img::AxisArray)
+    pa = prod( abs(last(a)-first(a))/length(a) for a in AxisArrays.axes(img) ) # area of one pixel
+    return pa*area(b)
+end
 
 """
     maskedimage(b::Blob, img::AbstractMatrix, mark=missing, markvalue=0.5)
@@ -406,7 +420,17 @@ function interiorregions(b::Blob)
     return Blob[Blob(__offset(tb.bounds, b.bounds), tb.mask) for tb in tmp]
 end
 
+"""
+    filledarea(b::Blob)
+    filledarea(b::Blob, img::AxisArray)
+
+Area of the blob plus interior regions.
+"""
 filledarea(b::Blob) = area(b) + sum(area.(interiorregions(b)))
+function filledarea(b::Blob, img::AxisArray)
+    pa = prod( abs(last(a)-first(a))/length(a) for a in AxisArrays.axes(img) ) # area of one pixel
+    return pa*filledarea(b)
+end
 
 function __offset(ci::CartesianIndices, base::CartesianIndices)
     rs = map(

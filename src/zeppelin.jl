@@ -78,7 +78,7 @@ function loadZep( hdzfilename::String)
             ic = findfirst(nm->nm==col, names(res))
             if !isnothing(ic)
                 select!(res, Not(ic))
-                insertcols!(res, ic, col=>map(z-> z>0 && z<=length(elements) ? elements[z] : missing, pxz[:,col]))
+                insertcols!(res, ic, col=>map(z-> z in 1:length(elements) ? elements[z] : missing, pxz[:,col]))
             end
         end
         for col in ( "XDAC", "YDAC", "TYPE_4ET_", "TYPE4ET" )

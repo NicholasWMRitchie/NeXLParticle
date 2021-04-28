@@ -38,14 +38,14 @@ struct Signature
         new(Dict{CharXRay,AbstractFloat}(), mc, fc, kro)
 end
 
-function kpure(sig::Signature, std::Material, elm::Element, lines::Vector{CharXRay}, stdE0, unkE0, stdθ, unkθ)::AbstractFloat
-    res = get(sig.kpure, brightest(lines), -1.0)
+function kpure(sig::Signature, std::Material, elm::Element, xrays::Vector{CharXRay}, stdE0, unkE0, stdθ, unkθ)::AbstractFloat
+    res = get(sig.kpure, brightest(xrays), -1.0)
     if res == -1.0
-        flines = filter(cxr->energy(inner(cxr))<min(stdE0, unkE0), lines)
+        flines = filter(cxr->energy(inner(cxr))<min(stdE0, unkE0), xrays)
         unkzaf = zafcorrection(sig.matrix, sig.fluorescence, Coating, std, flines, stdE0)
         stdzaf = zafcorrection(sig.matrix, sig.fluorescence, Coating, pure(elm), flines, unkE0)
         res = k(unkzaf, stdzaf, stdθ, unkθ)
-        sig.kpure[brightest(lines)] = res
+        sig.kpure[brightest(xrays)] = res
     end
     return res
 end
@@ -78,7 +78,7 @@ function signature( #
             sig,
             kr.standard,
             kr.element,
-            kr.lines,
+            kr.xrays,
             kr.stdProps[:BeamEnergy],
             kr.unkProps[:BeamEnergy],
             kr.stdProps[:TakeOffAngle],
@@ -103,14 +103,14 @@ end
 
 function cull(cr::NSigmaCulling, kr::KRatio)
     k, s = NeXLUncertainties.value(kr.kratio), σ(kr.kratio)
-    return k > cr.nsigma * s ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
+    return k > cr.nsigma * s ? kr : KRatio(kr.xrays, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, s))
 end
 
 struct NoCulling <: CullingRule end
 
 function cull(cr::NoCulling, kr::KRatio)
     k = NeXLUncertainties.value(kr.kratio)
-    return k > 0 ? kr : KRatio(kr.lines, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, σ(kr.kratio)))
+    return k > 0 ? kr : KRatio(kr.xrays, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, σ(kr.kratio)))
 end
 
 

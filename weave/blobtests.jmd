@@ -10,7 +10,7 @@ using DataStructures
 ```
 Load a test image
 ```julia
-spec=loadspectrum("C:\\Users\\nritchie\\Desktop\\EGOS Only\\00008.tif")
+spec=loadspectrum(ASPEXTIFF, "C:\\Users\\nritchie\\Desktop\\EGOS Only\\00008.tif", withImgs=true)
 bse, se = spec[:Image1], spec[:Image2]
 display(se)
 ```

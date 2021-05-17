@@ -395,9 +395,9 @@ function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
         )
     res = RGB.(img)
     for (i, blob) in enumerate(bs)
-        col = colors[i]
-        foreach(ci -> res[ci] = 0.5 * col + 0.5 * img[ci], filter(c -> blob[c], CartesianIndices(blob))) # draw interior
-        foreach(ci -> res[off(ci, blob)...] = col, perimeter(blob)) # draw perimeter
+        c = colors[i]
+        foreach(ci -> res[ci] = blob[ci] ? 0.5 * c + 0.5 * img[ci] : img[ci], CartesianIndices(blob)) # draw interior
+        foreach(ci -> res[off(ci, blob)...] = c, perimeter(blob)) # draw perimeter
         res[off(blob.pstart, blob)...] = RGB(1.0, 0.0, 0.0) # draw start of perimeter...
     end
     return res

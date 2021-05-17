@@ -12,7 +12,7 @@ artifacts_toml = joinpath(@__DIR__, "Artifacts.toml")
 zep_hash = artifact_hash("zeptest", artifacts_toml)
 
 # If the name was not bound, or the hash it was bound to does not exist, create it!
-if zep_hash == nothing || !artifact_exists(zep_hash)
+if isnothing(zep_hash) || !artifact_exists(zep_hash)
     # create_artifact() returns the content-hash of the artifact directory once we're finished creating it
     zep_hash = create_artifact() do artifact_dir
         println("Downloading test data to $artifact_dir")

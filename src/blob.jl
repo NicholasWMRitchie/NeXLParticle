@@ -14,7 +14,7 @@ of the perimeter points.
 struct Blob
     bounds::CartesianIndices
     mask::BitArray  # Mask of those pixels in the blob
-    pstart::CartesianIndex # Start of the perimeter
+    pstart::CartesianIndex{2} # Start of the perimeter
     psteps::Vector{Tuple{Int,Int}} # Steps around perimeter
 
     function Blob(bounds::CartesianIndices, mask::BitArray)
@@ -46,9 +46,9 @@ struct Blob
                         break # end at the start going the same direction
                     end
                 end
-                return (CartesianIndex(start), stps)
+                return (CartesianIndex{2}(start), stps)
             else
-                return (CartesianIndex(1, 1), stps)
+                return (CartesianIndex{2}(1, 1), stps)
             end
         end
         @assert ndims(mask) == 2
@@ -136,18 +136,18 @@ Base.CartesianIndices(b::Blob) = b.bounds
 
 Whether a pixel in the original image's coordinate system is in the blob.
 """
-Base.getindex(b::Blob, ci::CartesianIndex) = #
+Base.getindex(b::Blob, ci::CartesianIndex{2}) = #
     (ci in b.bounds) && b.mask[map(i -> ci.I[i] - b.bounds.indices[i].start + 1, eachindex(ci.I))...]
 
 """
-    perimeter(b::Blob)::Vector{CartesianIndex}
+    perimeter(b::Blob)::Vector{CartesianIndex{2}}
 
-Returns a vector of `CartesianIndex` corresponding to the points around the
+Returns a vector of `CartesianIndex{2}` corresponding to the points around the
 perimeter of the blob in the original image's coordinate system.
 """
-function perimeter(b::Blob)::Vector{CartesianIndex}
-    pts, acc = CartesianIndex[b.pstart], [b.pstart.I...]
-    foreach(stp -> push!(pts, CartesianIndex((acc .+= stp)...)), b.psteps[1:end-1])
+function perimeter(b::Blob)::Vector{CartesianIndex{2}}
+    pts, acc = CartesianIndex{2}[b.pstart], [b.pstart.I...]
+    foreach(stp -> push!(pts, CartesianIndex{2}((acc .+= stp)...)), b.psteps[1:end-1])
     return pts
 end
 
@@ -196,12 +196,12 @@ function curvature(b::Blob, n::Int)
 end
 
 """
-    splitblob(b::Blob, p1::CartesianIndex, p2::CartesianIndex)
+    splitblob(b::Blob, p1::CartesianIndex{2}, p2::CartesianIndex{2})
 
 Split a Blob by drawing a line from p1 to p2 (assumed to be on the perimeter
 or outside b) and reblobining.
 """
-function splitblob(b::Blob, p1::CartesianIndex, p2::CartesianIndex)
+function splitblob(b::Blob, p1::CartesianIndex{2}, p2::CartesianIndex{2})
     mask = copy(b.mask)
     # Draw a line to divide the particles for reblobbing
     drawline(pt->mask[pt...]=false, p1, p2, true)
@@ -378,7 +378,7 @@ end
 
 """
     colorizedimage(bs::Vector{Blob}, img::AbstractArray)
-    colorizedimage(chords::Vector{Vector{CartesianIndex}}, img::AbstractArray)
+    colorizedimage(chords::Vector{Vector{CartesianIndex{2}}}, img::AbstractArray)
 
 Create a colorized version of img and draw the blob or chords on it.
 """
@@ -432,10 +432,10 @@ function filledarea(b::Blob, img::AxisArray)
     return pa*filledarea(b)
 end
 
-function __offset(ci::CartesianIndices, base::CartesianIndices)
+function __offset(ci::CartesianIndices{N,R}, base::CartesianIndices{N,R}) where { N, R<:Tuple}
     rs = map(
         i -> ci.indices[i].start+base.indices[i].start-1:ci.indices[i].stop+base.indices[i].start-1,
         eachindex(ci.indices),
     )
-    return CartesianIndices(tuple(rs...))
+    return CartesianIndices{N,R}(tuple(rs...))
 end

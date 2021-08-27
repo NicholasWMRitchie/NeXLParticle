@@ -1,29 +1,87 @@
 using CSV
-using DataStructures
+using DataStructures: SortedDict, SortedSet
 using Random
 using DataAPI
 using StringEncodings
-using CoordinateTransformations
+using StaticArrays: SVector
+using CoordinateTransformations: AbstractAffineMap
 
 Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 
+"""
+Handles RJ Lee-style Zeppelin particle data sets.
+"""
 struct Zeppelin
     headerfile::String
-    header::Dict{String,String}
-    elms::Vector{Element}
-    classes::Dict{String, String}
+    header::SortedDict{String,String}
+    elms::SortedSet{Element}
+    classes::SortedDict{Int, String}
     data::DataFrame
-
-    function Zeppelin( hdzfilename::String)
-        new( hdzfilename, loadZep( hdzfilename)...)
+    
+    function Zeppelin( #
+        headerfile::String,
+        header::AbstractDict{String,String},
+        elms::Union{AbstractSet{Element}, AbstractVector{Element}},
+        classes::AbstractDict{String,String},
+        data::DataFrame
+    )
+        function _massagehdz(header)
+            res = SortedDict(header)
+            foreach(hi -> if hi in keys(header) delete!(res, hi) end, ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ))
+            foreach(f->if startswith(f,"ELEM") delete!(res,f) end, keys(header))
+            foreach(f->if startswith(f,"CLASS") delete!(res,f) end, keys(header))
+            return res
+        end
+        # Mostly converts columns to categorical as desired...
+        function _massagepxz(header, pxz)::DataFrame
+            res = copy(pxz)
+            sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
+            sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), collect(keys(header)))), lt = sortclasses)
+            clsnames = append!(["--None--"], map(c -> header[c], sortedkeys))
+            for col in ("CLASS", "VERIFIEDCLASS")
+                ic = findfirst(nm->nm==col, names(res))
+                if !isnothing(ic)
+                    cls = categorical(Union{String,Missing}[ clsnames... ], ordered=true)[1:0] # empty but with correct levels
+                    foreach(name->push!(cls, name), map(cl -> get(clsnames, convert(Int, cl) + 2, "####"), pxz[:, col]))
+                    select!(res, Not(ic))
+                    insertcols!(res, ic, col=>cls)
+                end
+            end
+            for col in ( "FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
+                ic = findfirst(nm->nm==col, names(res))
+                if !isnothing(ic)
+                    select!(res, Not(ic))
+                    insertcols!(res, ic, col=>map(z-> z in 1:length(elements) ? elements[z] : missing, pxz[:,col]))
+                end
+            end
+            for col in ( "XDAC", "YDAC", "TYPE_4ET_", "TYPE4ET" )
+                ic = findfirst(nm->nm==col, names(res))
+                if !isnothing(ic)
+                    select!(res, Not(ic))
+                end
+            end
+            return res
+        end
+        function _massageclasses(classes::AbstractDict{String, String})
+            return SortedDict{Int, String}( parse(Int, key[6:end]) => val for (key, val) in classes )
+        end
+        new(
+            headerfile,
+            _massagehdz(header),
+            SortedSet(elms),
+            _massageclasses(classes),
+            _massagepxz(header, data)
+        )
     end
+
+    Zeppelin( hdzfilename::String) = loadZep( hdzfilename)
 
     function Zeppelin( #
         headerfile::String,
-        header::Dict{String,String},
+        header::AbstractDict{String,String},
         data::DataFrame,
     )
-        new(
+        Zeppelin(
             headerfile,
             header,
             filter(elm -> uppercase(elm.symbol) in names(data), PeriodicTable.elements[1:94]),
@@ -31,64 +89,11 @@ struct Zeppelin
             data,
         )
     end
-    
-    function Zeppelin( #
-        headerfile::String,
-        header::Dict{String,String},
-        elms::Vector{Element},
-        classes::Dict{String,String},
-        data::DataFrame
-    )
-        new(
-            headerfile,
-            header,
-            elms,
-            classes,
-            data
-        )
-    end
 end
 
 Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.elms), copy(z.classes), copy(z.data))
 
 function loadZep( hdzfilename::String)
-    function _massagehdz(header)
-        res = copy(header)
-        foreach(hi -> if haskey(header, hi) delete!(res, hi) end, ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ))
-        foreach(f->if startswith(f,"ELEM") delete!(res,f) end, keys(header))
-        foreach(f->if startswith(f,"CLASS") delete!(res,f) end, keys(header))
-        return res
-    end
-    # Mostly converts columns to categorical as desired...
-    function _massagepxz(header, pxz)::DataFrame
-        res = copy(pxz)
-        sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
-        sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), keys(header))), lt = sortclasses)
-        clsnames = append!(["--None--"], map(c -> header[c], sortedkeys))
-        for col in ("CLASS", "VERIFIEDCLASS")
-            ic = findfirst(nm->nm==col, names(res))
-            if !isnothing(ic)
-                cls = categorical(Union{String,Missing}[ clsnames... ], ordered=true)[1:0] # empty but with correct levels
-                foreach(name->push!(cls, name), map(cl -> get(clsnames, convert(Int, cl) + 2, "####"), pxz[:, col]))
-                select!(res, Not(ic))
-                insertcols!(res, ic, col=>cls)
-            end
-        end
-        for col in ( "FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
-            ic = findfirst(nm->nm==col, names(res))
-            if !isnothing(ic)
-                select!(res, Not(ic))
-                insertcols!(res, ic, col=>map(z-> z in 1:length(elements) ? elements[z] : missing, pxz[:,col]))
-            end
-        end
-        for col in ( "XDAC", "YDAC", "TYPE_4ET_", "TYPE4ET" )
-            ic = findfirst(nm->nm==col, names(res))
-            if !isnothing(ic)
-                select!(res, Not(ic))
-            end
-        end
-        return res
-    end
     remapcolumnnames = Dict(
         "PART#" => "NUMBER",
         "PARTNUM" => "NUMBER",
@@ -165,19 +170,18 @@ function loadZep( hdzfilename::String)
         missingstring="-",
         decimal='.'
     ) |> DataFrame
-    elms = filter(z -> uppercase(z.symbol) in names(pxz), PeriodicTable.elements[1:94])
-    classes = Dict{String, String}(key=>header[key] for key in filter(f->startswith(f, "CLASS") && (f ≠ "CLASSES"),keys(header)))
-    return (_massagehdz(header), elms, classes, _massagepxz(header, pxz))
+    #elms = filter(z -> uppercase(z.symbol) in names(pxz), PeriodicTable.elements[1:94])
+    #classes = Dict{String, String}(key=>header[key] for key in filter(f->startswith(f, "CLASS") && (f ≠ "CLASSES"),keys(header)))
+    return Zeppelin( hdzfilename, header, pxz)
 end
 
 function Base.show(io::IO, zep::Zeppelin)
     print(io, "Zeppelin[$(zep.headerfile),$(size(zep.data))]")
 end
 
-function classes(zep::Zeppelin)
-    sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
-    return (c -> zep.classes[c]).(sort(collect(keys(zep.classes)),lt = sortclasses,))
-end
+Base.size(z::Zeppelin) = size(z.data)
+
+classes(zep::Zeppelin) = zep.classes
 
 NeXLCore.elms(zep::Zeppelin) = zep.elms
 
@@ -220,7 +224,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     medds = Float64[ ds.median ]
     maxds = Float64[ ds.max ]
     sbcm = StatsBase.countmap(zep[:,:CLASS])
-    for (cn, cx) in sbcm
+    for (cn, _) in sbcm
         rows = rowsclass(zep,String(cn))
         #if length(rows)>0
         push!(clss, String(cn))
@@ -241,7 +245,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
         sst = ss[ne][2]
         push!(elmdfs, DataFrame(cols[1]=>uem[ symbol(ss[ne][1]) ], cols[2]=>uef[sst.min], cols[3]=>uef[sst.median], cols[4]=>uef[sst.max]))
     end
-    for (cn, cx) in sbcm
+    for (cn, _) in sbcm
         try
             ss = sortedstats(rowsclass(zep, String(cn)))
             for ne in 1:cnelms
@@ -646,16 +650,14 @@ const ALL_CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )
 
 
 """
-    translate(zep::Zeppelin, am::AffineMap)::Zeppelin
+    translate(zep::Zeppelin, am::AbstractAffineMap)::Zeppelin
 
-Translates the XABS and YABS columns in `zep` by applying the AffineMap `am`.
-A copy of the original Zeppelin dataset is returned.
+The result is a copy of `zep` with the columns `:XABS` and `:YABS` replaced with the DataFtranslated coordinates.
 """
-function translate(zep::Zeppelin, am::AffineMap)::Zeppelin
-    res = copy(zep)
-    oldCoords = [ XYCoordinates(r[:XABS], r[:YABS]) for r in eachrow(zep.data) ]
-    newCoords = am.(oldCoordinates)
-    res[:, :XABS] = [ nc[1] for nc in newCoords ]
-    res[:, :YABS] = [ nc[2] for nc in newCoords ]
+function translate(zep::Zeppelin, am::AbstractAffineMap)::Zeppelin
+    res=copy(zep)
+    foreach(eachrow(res)) do r
+        ( r[:XABS], r[:YABS] ) = am(SVector(r[:XABS], r[:YABS]))
+    end
     return res
 end

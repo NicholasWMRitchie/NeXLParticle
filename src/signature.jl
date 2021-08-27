@@ -264,8 +264,8 @@ function NeXLMatrixCorrection.quantify(
     relocated::Bool = true)
     qr = _quant(zep,ffp,rows,strip,special,cullRule,writeResidual,withUncertainty,relocated)
     # Remove old items...
-    removecols = map(elm -> uppercase(elm.symbol), zep.elms)
-    append!(removecols, map(elm -> "U_$(uppercase(elm.symbol))_", zep.elms))
+    removecols = map(elm -> uppercase(elm.symbol), collect(zep.elms))
+    append!(removecols, map(elm -> "U_$(uppercase(elm.symbol))_", collect(zep.elms)))
     append!(removecols, ALL_COMPOSITIONAL_COLUMNS)
     # append!(removecols, ALL_CLASS_COLUMNS)
     remaining = copy(zep.data[rows, filter(f -> !(f in removecols), names(zep.data))])

@@ -46,9 +46,13 @@ struct DiluvianCluster
   # Cached cluster count
   count::Int
 
+  function DiluvianCluster(df::AbstractDataFrame, bin::Function = defbin, connects::Function = defconnects)
+    return DiluvianCluster(names(df), [ df[:, name] for name in names ], bin=bin, connects=connects)
+  end
+
   function DiluvianCluster(
     labels::Vector,
-    data::Vector{<:Array};
+    data::Vector{<:AbstractArray};
     bin::Function = defbin,
     connects::Function = defconnects,
   )
@@ -59,9 +63,9 @@ struct DiluvianCluster
     return new(labels, data, clusters, length(islands))
   end
 
-  function DiluvianCluster(labeleddata::Tuple{Any,Array}...; bin::Function = defbin, connects::Function = defconnects)
-    lbls = [lbl for (lbl, arr) in labeleddata]
-    data = [arr for (lbl, arr) in labeleddata]
+  function DiluvianCluster(labeleddata::Tuple{Any,AbstractArray}...; bin::Function = defbin, connects::Function = defconnects)
+    lbls = [lbl for (lbl, _) in labeleddata]
+    data = [arr for (_, arr) in labeleddata]
     return DiluvianCluster(lbls, data, bin = bin, connects = connects)
   end
 end
@@ -69,7 +73,7 @@ end
 Base.show(io::IO, dc::DiluvianCluster) = print(io, "DiluvianCluster[$(dc.count) clusters]")
 
 # Bin the data in a N-dimensional histogram
-function buildhistogram(data::Vector{<:Array}, bin::Function)
+function buildhistogram(data::Vector{<:AbstractArray}, bin::Function)
   binindex = (ci, data, bin) -> CartesianIndex((bin(datum[ci]) for datum in data)...)
   hist = Dict{CartesianIndex,Integer}()
   for ci in CartesianIndices(data[1])

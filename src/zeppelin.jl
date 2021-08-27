@@ -434,7 +434,9 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
         println(ios, "HEADER_FMT=ZEPP_1")
         foreach(hk->println(ios,"$(hk)=$(headeritems[hk])"), sort(collect(keys(headeritems))))
         println(ios, "PARTICLE_PARAMETERS=$(size(zep.data,2))")
-        foreach(col->println(ios,remapcolumnnames[col]),colnames)
+        foreach(colnames) do col
+            println(ios, get(remapcolumnnames, col, "$col\t1\t"*uppercase(repr(eltype(zep.data[:,col])))))
+        end
     end
     pxzfilename = replace( hdzfilename, r".[h|H][d|D][z|Z]"=>".pxz")
     zd = DataFrame(zep.data)

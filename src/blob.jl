@@ -14,7 +14,7 @@ of the perimeter points.
 struct Blob
     bounds::CartesianIndices
     mask::BitArray  # Mask of those pixels in the blob
-    pstart::CartesianIndex # Start of the perimeter
+    pstart::CartesianIndex{2} # Start of the perimeter
     psteps::Vector{Tuple{Int,Int}} # Steps around perimeter
 
     function Blob(bounds::CartesianIndices, mask::BitArray)
@@ -46,9 +46,9 @@ struct Blob
                         break # end at the start going the same direction
                     end
                 end
-                return (CartesianIndex(start), stps)
+                return (CartesianIndex{2}(start), stps)
             else
-                return (CartesianIndex(1, 1), stps)
+                return (CartesianIndex{2}(1, 1), stps)
             end
         end
         @assert ndims(mask) == 2
@@ -136,26 +136,31 @@ Base.CartesianIndices(b::Blob) = b.bounds
 
 Whether a pixel in the original image's coordinate system is in the blob.
 """
-Base.getindex(b::Blob, ci::CartesianIndex) = #
+Base.getindex(b::Blob, ci::CartesianIndex{2}) = #
     (ci in b.bounds) && b.mask[map(i -> ci.I[i] - b.bounds.indices[i].start + 1, eachindex(ci.I))...]
 
 """
-    perimeter(b::Blob)::Vector{CartesianIndex}
+    perimeter(b::Blob)::Vector{CartesianIndex{2}}
 
-Returns a vector of `CartesianIndex` corresponding to the points around the
+Returns a vector of `CartesianIndex{2}` corresponding to the points around the
 perimeter of the blob in the original image's coordinate system.
 """
-function perimeter(b::Blob)::Vector{CartesianIndex}
-    pts, acc = CartesianIndex[b.pstart], [b.pstart.I...]
-    foreach(stp -> push!(pts, CartesianIndex((acc .+= stp)...)), b.psteps[1:end-1])
+function perimeter(b::Blob)::Vector{CartesianIndex{2}}
+    pts, acc = CartesianIndex{2}[b.pstart], [b.pstart.I...]
+    foreach(stp -> push!(pts, CartesianIndex{2}((acc .+= stp)...)), b.psteps[1:end-1])
     return pts
+end
+
+function perimeter(b::Blob, img::AxisArray, p::Real=2)
+    perim = perimeter(b)
+    sum( norm(img, perim[i], perim[i == length(p) ? 1 : i+1], p) for i in eachindex(p) )
 end
 
 
 """
     perimeterlength(b::Blob)
 
-Compute the length of the blob perimeter.  Diagonals are √2 and straights are 1.
+Compute the length of the blob perimeter in pixels.  Diagonals are √2 and straights are 1.
 """
 perimeterlength(b::Blob) = length(b.psteps) > 0 ? mapreduce(st -> sqrt(dot(st, st)), +, b.psteps) : 4.0
 
@@ -191,12 +196,12 @@ function curvature(b::Blob, n::Int)
 end
 
 """
-    splitblob(b::Blob, p1::CartesianIndex, p2::CartesianIndex)
+    splitblob(b::Blob, p1::CartesianIndex{2}, p2::CartesianIndex{2})
 
 Split a Blob by drawing a line from p1 to p2 (assumed to be on the perimeter
 or outside b) and reblobining.
 """
-function splitblob(b::Blob, p1::CartesianIndex, p2::CartesianIndex)
+function splitblob(b::Blob, p1::CartesianIndex{2}, p2::CartesianIndex{2})
     mask = copy(b.mask)
     # Draw a line to divide the particles for reblobbing
     drawline(pt->mask[pt...]=false, p1, p2, true)
@@ -279,7 +284,7 @@ end
 
 A default function to score a blob as a candidate particle.  Smaller scores are more particle like.
 """
-scorer(b::Blob, minarea = 100) = # perimeter/π == ecd for a circle
+scorer(b::Blob, img::AbstractArray, minarea = 100) = # perimeter/π == ecd for a circle
     (area(b) < minarea ? 100.0 : minarea / area(b)) + perimeterlength(b) / (π * ecd(b, false))
 
 """
@@ -297,7 +302,7 @@ is defined as the one that produces particles that produce smaller `score(b)`.  
 the blob will produce multiple blobs of lower scores. The default function 'scorer(b::Blob)' looks for more circular
 blobs.
 """
-function multiseparate(img::Array, threshes; score = scorer, concavity = 0.42, minarea = 10, dump = nothing)::Vector{Blob}
+function multiseparate(img::AbstractArray, threshes; score = scorer, concavity = 0.42, minarea = 10, dump = nothing)::Vector{Blob}
     function segmenter(th)
         starters = blob(img, p -> p >= th)
         return length(starters) > 0 ? #
@@ -312,7 +317,7 @@ function multiseparate(img::Array, threshes; score = scorer, concavity = 0.42, m
             # Find which `blobs` make up `bb`
             becomes = filter(b -> commonarea(b, bb) / area(b) > 0.8, blobs)
             # Should we split `bb` into `becomes`
-            split = length(becomes) > 1 && mean(score.(becomes)) < score(bb)
+            split = length(becomes) > 1 && mean(map(b->score(b, img), becomes)) < score(bb, img)
             if (!isnothing(dump)) && (length(becomes) > 1)
                 open(dump * "[details].txt", "a") do io
                     write(
@@ -348,8 +353,17 @@ end
    area(b::Blob)
 
 Area of the Blob in pixel count.
+
+area(b::Blob, img::AxisArray)
+
+Area of the Blob in the units associated with `img`.  Assumes that each pixel in the image
+is the same size.
 """
 area(b::Blob) = count(b.mask)
+function area(b::Blob, img::AxisArray)
+    pa = prod( abs(last(a)-first(a))/length(a) for a in AxisArrays.axes(img) ) # area of one pixel
+    return pa*area(b)
+end
 
 """
     maskedimage(b::Blob, img::AbstractMatrix, mark=missing, markvalue=0.5)
@@ -364,7 +378,7 @@ end
 
 """
     colorizedimage(bs::Vector{Blob}, img::AbstractArray)
-    colorizedimage(chords::Vector{Vector{CartesianIndex}}, img::AbstractArray)
+    colorizedimage(chords::Vector{Vector{CartesianIndex{2}}}, img::AbstractArray)
 
 Create a colorized version of img and draw the blob or chords on it.
 """
@@ -381,9 +395,9 @@ function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
         )
     res = RGB.(img)
     for (i, blob) in enumerate(bs)
-        col = colors[i]
-        foreach(ci -> res[ci] = 0.5 * col + 0.5 * img[ci], filter(c -> blob[c], CartesianIndices(blob))) # draw interior
-        foreach(ci -> res[off(ci, blob)...] = col, perimeter(blob)) # draw perimeter
+        c = colors[i]
+        foreach(ci -> res[ci] = blob[ci] ? 0.5 * c + 0.5 * img[ci] : img[ci], CartesianIndices(blob)) # draw interior
+        foreach(ci -> res[off(ci, blob)...] = c, perimeter(blob)) # draw perimeter
         res[off(blob.pstart, blob)...] = RGB(1.0, 0.0, 0.0) # draw start of perimeter...
     end
     return res
@@ -406,12 +420,22 @@ function interiorregions(b::Blob)
     return Blob[Blob(__offset(tb.bounds, b.bounds), tb.mask) for tb in tmp]
 end
 
-filledarea(b::Blob) = area(b) + sum(area.(interiorregions(b)))
+"""
+    filledarea(b::Blob)
+    filledarea(b::Blob, img::AxisArray)
 
-function __offset(ci::CartesianIndices, base::CartesianIndices)
+Area of the blob plus interior regions.
+"""
+filledarea(b::Blob) = area(b) + sum(area.(interiorregions(b)))
+function filledarea(b::Blob, img::AxisArray)
+    pa = prod( abs(last(a)-first(a))/length(a) for a in AxisArrays.axes(img) ) # area of one pixel
+    return pa*filledarea(b)
+end
+
+function __offset(ci::CartesianIndices{N,R}, base::CartesianIndices{N,R}) where { N, R<:Tuple}
     rs = map(
         i -> ci.indices[i].start+base.indices[i].start-1:ci.indices[i].stop+base.indices[i].start-1,
         eachindex(ci.indices),
     )
-    return CartesianIndices(tuple(rs...))
+    return CartesianIndices{N,R}(tuple(rs...))
 end

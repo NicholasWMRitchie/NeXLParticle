@@ -138,7 +138,7 @@ function multiternary(
             ),
         )
     end
-    compose(context(0.05, 0.0, 0.9, 0.9), (context(), ops...), (context(), label(center, string.(cols[1:ncols]), 0.48)))
+    Compose.compose(context(0.05, 0.0, 0.9, 0.9), (context(), ops...), (context(), label(center, string.(cols[1:ncols]), 0.48)))
 end
 
 """

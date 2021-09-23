@@ -5,6 +5,7 @@ using FileIO
 using Reexport
 using Requires
 using StatsBase
+using AxisArrays
 
 @reexport using NeXLSpectrum
 
@@ -21,6 +22,7 @@ export rowsmax, rowsmin, rowsclass
 export MORPH_COLS, COMP_COLS, CLASS_COLS
 export beamenergy, probecurrent, magdata
 export maxparticle
+export writeZep
 
 export ParticleClassifier
 

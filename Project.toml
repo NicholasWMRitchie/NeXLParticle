@@ -2,7 +2,7 @@ name = "NeXLParticle"
 uuid = "9f92fee6-ed62-42c3-b009-0e4f934456c2"
 authors = ["Nicholas W.M. Ritchie <nicholas.ritchie@nist.gov>"]
 repo-url = "https://github.com/usnistgov/NeXLParticle.jl"
-version = "0.2.0"
+version = "0.1.0-dev"
 
 [deps]
 AxisArrays = "39de3d68-74b9-583c-8d2d-e117c070f3a9"
@@ -35,7 +35,7 @@ StringEncodings = "69024149-9ee7-55f6-a4c4-859efe599b68"
 [compat]
 AxisArrays = "^0.4"
 CSV = "^0.8"
-CategoricalArrays = "^0.8, ^0.9"
+CategoricalArrays = "^0.8, ^0.9, ^0.10"
 Colors = "^0.12"
 Compose = "^0.9"
 CoordinateTransformations = "^0.6"

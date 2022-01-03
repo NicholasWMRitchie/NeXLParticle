@@ -1,7 +1,6 @@
 using NeXLMatrixCorrection
 using CategoricalArrays
 using NeXLSpectrum
-using Base.Threads
 
 function askratios(ffr::FitResult)::Vector{KRatio}
     res = KRatio[]
@@ -113,28 +112,6 @@ function cull(cr::NoCulling, kr::KRatio)
     return k > 0 ? kr : KRatio(kr.xrays, kr.unkProps, kr.stdProps, kr.standard, UncertainValue(0.0, σ(kr.kratio)))
 end
 
-
-function _quant(
-    zep::Zeppelin,
-    det::Detector,
-    refs::Dict{Element,Spectrum},
-    rows::Union{AbstractVector{Int},UnitRange{Int}},
-    strip::Set{Element}, # Elements to fit but not include in the result table.
-    special::Set{Element}, # Element for special treatment in signature
-    cullRule::CullingRule,
-    writeResidual::Bool,
-    withUncertainty::Bool,
-    relocated::Bool
-)
-    # Create filtered references.  Not worth threading.
-    ffp = references(
-        [ reference(elm, spec, spec[:Composition]) for (elm, spec) in refs ],
-        det
-    )
-    _quant(zep, ffp, rows, strip, special, cullRule, writeResidual, withUncertainty, relocated)
-end
-
-
 function _quant(
     zep::Zeppelin,
     ffp::FilterFitPacket,
@@ -149,7 +126,7 @@ function _quant(
     sortedbysig(newcols, row) =
             sort(collect(zip(newcols, row)),lt=(i1,i2)->!isless(i1[1]==n"O" ? 0.0 : i1[2],i2[1]==n"O" ? 0.0 : i2[2]))
     # Create filtered references.  Not worth threading.
-    filt, filtrefs, det = ffp.filter, ffp.references, ffp.detector
+    filt, filtrefs = ffp.filter, ffp.references
     e0, toa = beamenergy(zep), sameproperty([ ref.label.spectrum for ref in filtrefs], :TakeOffAngle)
     # Create a list of columns (by element)
     newcols = sort(collect(filter(elm -> !(elm in strip), unique(collect( element(ref.label) for ref in filtrefs)))))
@@ -162,10 +139,8 @@ function _quant(
         end
     end
     ignore = union(strip,special)
-    krvs = Array{Union{Missing, Vector{KRatio}}}(missing, length(rows))
     counts = Array{Union{Missing,Float64}}(missing, length(rows))
-    Threads.@threads for ir in eachindex(rows)
-        row = rows[ir]
+    krvs = ThreadsX.map(enumerate(rows)) do (ir, row)
         unk = spectrum(zep, row, false, relocated)
         if !ismissing(unk)
             # Particle spectra are often missing critical data items...
@@ -178,8 +153,9 @@ function _quant(
                 filename = joinpath(dirname(zep.headerfile), "Residual", filenumber(zep, row)*".msa")
                 savespectrum(ISOEMSA,filename, NeXLSpectrum.residual(res))
             end
-            culled = map(kr -> cull(cullRule, kr), askratios(res))
-            krvs[ir] = filter(kr -> kr.element in newcols, culled)
+            filter(kr -> kr.element in newcols, map(kr -> cull(cullRule, kr), askratios(res)))
+        else
+            KRatio[]
         end
     end
     nfirst=min(4, length(newcols)-length(special))
@@ -218,42 +194,6 @@ end
 
 function NeXLMatrixCorrection.quantify(
     zep::Zeppelin,
-    det::Detector,
-    refs::Dict{Element,Spectrum},
-    rows::Union{AbstractVector{Int},UnitRange{Int}}=eachparticle(zep);
-    strip = Set{Element}( (n"C", ) ), # Elements to fit but not include in the result table.
-    special = Set{Element}( ( n"O", ) ), # Element for special treatment in signature
-    cullRule::CullingRule = NSigmaCulling(3.0),
-    writeResidual::Bool = true,
-    withUncertainty::Bool = true,
-    relocated::Bool = true)
-    qr = _quant(zep,det,refs,rows,strip,special,cullRule,writeResidual,withUncertainty, relocated)
-    # Remove old items...
-    removecols = map(elm -> uppercase(elm.symbol), zep.elms)
-    append!(removecols, map(elm -> "U_$(uppercase(elm.symbol))_", zep.elms))
-    append!(removecols, ALL_COMPOSITIONAL_COLUMNS)
-    # append!(removecols, ALL_CLASS_COLUMNS)
-    remaining = copy(zep.data[rows, filter(f -> !(f in removecols), names(zep.data))])
-    data = hcat(remaining, qr)
-    # Replace outdated header items
-    header = copy(zep.header)
-    headerfile =  joinpath(dirname(zep.headerfile),"npQuant.hdz") # So spectra and other path related items continue to work
-    delete!(header, "MAX_PARTICLE")
-    delete!(header, "MAX_RESIDUAL")
-    # Add/replace header items
-    for i in 1:1000
-        if !haskey(header, "ANCESTOR[$i]")
-            header["ANCESTOR[$i]"]=zep.headerfile
-            break
-        end
-    end
-    header["DATAFILES"] = replace(headerfile,r".[h|H][d|D][z|Z]$"=>".*")
-    header["VEC_FILE"] = "NeXLParticle"
-    return Zeppelin(headerfile, header, data)
-end
-
-function NeXLMatrixCorrection.quantify(
-    zep::Zeppelin,
     ffp::FilterFitPacket,
     rows::Union{AbstractVector{Int},UnitRange{Int}}=eachparticle(zep);
     strip = Set{Element}( (n"C", ) ), # Elements to fit but not include in the result table.
@@ -264,27 +204,43 @@ function NeXLMatrixCorrection.quantify(
     relocated::Bool = true)
     qr = _quant(zep,ffp,rows,strip,special,cullRule,writeResidual,withUncertainty,relocated)
     # Remove old items...
-    removecols = map(elm -> uppercase(elm.symbol), collect(zep.elms))
-    append!(removecols, map(elm -> "U_$(uppercase(elm.symbol))_", collect(zep.elms)))
+    els = collect(elms(zep))
+    removecols = map(elm -> uppercase(elm.symbol), els)
+    append!(removecols, map(elm -> "U_$(uppercase(elm.symbol))_", els))
     append!(removecols, ALL_COMPOSITIONAL_COLUMNS)
-    # append!(removecols, ALL_CLASS_COLUMNS)
     remaining = copy(zep.data[rows, filter(f -> !(f in removecols), names(zep.data))])
     data = hcat(remaining, qr)
     # Replace outdated header items
     header = copy(zep.header)
-    headerfile =  joinpath(dirname(zep.headerfile),"npQuant.hdz") # So spectra and other path related items continue to work
+    headerfile =  joinpath(dirname(zep.headerfile), "npQuant.hdz") # So spectra and other path related items continue to work
     delete!(header, "MAX_PARTICLE")
     delete!(header, "MAX_RESIDUAL")
     # Add/replace header items
-    for i in 1:1000
-        if !haskey(header, "ANCESTOR[$i]")
-            header["ANCESTOR[$i]"]=zep.headerfile
-            break
-        end
-    end
+    i = findfirst(i->!haskey(header, "ANCESTOR[$i]"), 1:1000)
+    header["ANCESTOR[$i]"]=zep.headerfile
     header["DATAFILES"] = replace(headerfile,r".[h|H][d|D][z|Z]$"=>".*")
     header["VEC_FILE"] = "NeXLParticle"
-    return Zeppelin(headerfile, header, data)
+    return Zeppelin(headerfile, header, data, zep.classnames)
+end
+
+
+function NeXLMatrixCorrection.quantify(
+    zep::Zeppelin,
+    det::Detector,
+    refs::Dict{Element,Spectrum},
+    rows::Union{AbstractVector{Int},UnitRange{Int}}=eachparticle(zep);
+    strip = Set{Element}( (n"C", ) ), # Elements to fit but not include in the result table.
+    special = Set{Element}( ( n"O", ) ), # Element for special treatment in signature
+    cullRule::CullingRule = NSigmaCulling(3.0),
+    writeResidual::Bool = true,
+    withUncertainty::Bool = true,
+    relocated::Bool = true)
+    # Create filtered references.  Not worth threading.
+    ffp = references(
+        [ reference(elm, spec, spec[:Composition]) for (elm, spec) in refs ],
+        det
+    )
+    quantify(zep, ffp, rows, strip=strip, special=special, cullRule=cullRule, writeResidual=writeResidual, withUncertainty=withUncertainty, relocated=relocated)
 end
 
 topN(items::Dict, n::Int) =

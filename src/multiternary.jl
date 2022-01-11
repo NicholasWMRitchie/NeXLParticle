@@ -104,12 +104,23 @@ function multiternary(
     # Label the ends of the axes
     function label(v0, labels, L)
         xl, yl, ll = Float64[], Float64[], String[]
+        function ss(l)
+            if startswith(l,"Element(")
+                try
+                    parse(Element,l[9:end-1]).symbol
+                catch
+                    titlecase(l)
+                end
+            else
+                titlecase(l)
+            end
+        end
         for i in eachindex(labels)
             θ = -π + π * i / 3
             vv = v(v0, θ, L)
             push!(xl, vv[1])
             push!(yl, vv[2])
-            push!(ll, titlecase(labels[i]))
+            push!(ll, ss(labels[i]))
         end
         return (
             context(),

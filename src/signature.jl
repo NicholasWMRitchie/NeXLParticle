@@ -126,7 +126,7 @@ function _quant(
     sortedbysig(newcols, row) =
             sort(collect(zip(newcols, row)),lt=(i1,i2)->!isless(i1[1]==n"O" ? 0.0 : i1[2],i2[1]==n"O" ? 0.0 : i2[2]))
     # Create filtered references.  Not worth threading.
-    filt, filtrefs = ffp.filter, ffp.references
+    filtrefs = ffp.references
     e0, toa = beamenergy(zep), sameproperty([ ref.label.spectrum for ref in filtrefs], :TakeOffAngle)
     # Create a list of columns (by element)
     newcols = sort(collect(filter(elm -> !(elm in strip), unique(collect( element(ref.label) for ref in filtrefs)))))
@@ -147,7 +147,7 @@ function _quant(
             unk[:ProbeCurrent], unk[:LiveTime] = get(unk, :ProbeCurrent, 1.0), get(unk, :LiveTime, 1.0)
             unk[:BeamEnergy], unk[:TakeOffAngle] = get(unk, :BeamEnergy, e0), get(unk, :TakeOffAngle, toa)
             # Fit, cull and then compute the particle signature...
-            res = fit_spectrum(unk, filt, filtrefs, true)
+            res = fit_spectrum(unk, ffp)
             counts[ir] = NeXLSpectrum.characteristiccounts(res, ignore)
             if writeResidual
                 filename = joinpath(dirname(zep.headerfile), "Residual", filenumber(zep, row)*".msa")

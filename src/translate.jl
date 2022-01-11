@@ -14,13 +14,14 @@ must contain the same number of X-Y coordinates.
 """
 function translate(oldPts::AbstractVector{XYPosition}, newPts::AbstractVector{XYPosition})::AffineMap
     @assert length(oldPts)==length(newPts) "The number of old and new points must match."
-    if length(oldPts)==1
-        offset, scale, rotatio = SA[ newPts[1] .- oldPts[1] ], SA[1.0, 1.0], 0.0
+    ( offset, scale, rotation) = if length(oldPts)==1
+         ( SA[ newPts[1] .- oldPts[1] ], SA[1.0, 1.0], 0.0 )
     else # Compute a first estimate from points 1 and 2
-        offset = 0.5*(newPts[2] .+ newPts[1]) .- 0.5*(oldPts[2] .+ oldPts[1])
+        off = 0.5*(newPts[2] .+ newPts[1]) .- 0.5*(oldPts[2] .+ oldPts[1])
         dold, dnew = oldPts[2] .- oldPts[1], newPts[2] .- newPts[1]
-        scale = SA[ norm(dnew)/norm(dold), norm(dnew)/norm(dold) ]
-        rotation = acos((dold⋅dnew)/(norm(dold)*norm(dnew)))
+        sc = SA[ norm(dnew)/norm(dold), norm(dnew)/norm(dold) ]
+        rot = acos((dold⋅dnew)/(norm(dold)*norm(dnew)))
+        ( off, sc, rot )
     end
     res = AffineMap(SA[ cos(rotation) -sin(rotation) ; sin(rotation) cos(rotation) ] * SA[ scale[1] 0.0; 0.0 scale[2]], offset)
     if length(oldPts)>2

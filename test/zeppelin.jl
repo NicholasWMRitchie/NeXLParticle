@@ -1,38 +1,11 @@
 using NeXLParticle
 using Test
-using Pkg
-using Pkg.Artifacts
+using DataDeps
 
 
-# This is the path to the Artifacts.toml we will manipulate
-artifacts_toml = joinpath(@__DIR__, "Artifacts.toml")
-
-# Query the `Artifacts.toml` file for the hash bound to the name "iris"
-# (returns `nothing` if no such binding exists)
-zep_hash = artifact_hash("zeptest", artifacts_toml)
-
-# If the name was not bound, or the hash it was bound to does not exist, create it!
-if isnothing(zep_hash) || !artifact_exists(zep_hash)
-    # create_artifact() returns the content-hash of the artifact directory once we're finished creating it
-    zep_hash = create_artifact() do artifact_dir
-        println("Downloading test data to $artifact_dir")
-        tarball = joinpath(artifact_dir, "zeptest.tar.gz")
-        download("https://drive.google.com/uc?export=download&id=1TZh4zbw2VY6QFlTfTpiPIG1U5uWepXRh",tarball)
-        Pkg.probe_platform_engines!()
-        Pkg.unpack(tarball, artifact_dir, verbose=true)
-        rm(tarball)
-    end
-    # Now bind that hash within our `Artifacts.toml`.  `force = true` means that if it already exists,
-    # just overwrite with the new content-hash.  Unless the source files change, we do not expect
-    # the content hash to change, so this should not cause unnecessary version control churn.
-    bind_artifact!(artifacts_toml, "zeptest", zep_hash)
-end
-
-# Get the path of the iris dataset, either newly created or previously generated.
-# this should be something like `~/.julia/artifacts/dbd04e28be047a54fbe9bf67e934be5b5e0d357a`
-zeptest = artifact_path(zep_hash)
 
 @testset "ZepTest" begin
+    zeptest = datadep"ZepTestArtifact"
     zep = Zeppelin(joinpath(zeptest,"test.hdz"))
     @test eachparticle(zep)==1:250
     hdz = header(zep)
@@ -45,30 +18,73 @@ zeptest = artifact_path(zep_hash)
     @test probecurrent(zep)==0.961832
     @test magdata(zep,0)["Fields"]==78.0
     @test magdata(zep,0)["Area"]==5.112
-    @test length(classes(zep))==52
+    @test length(classes(zep))==27
     @test maxparticle(zep,1:10)[123] == 42.0
-    relms = ( n"Ag", n"Al", n"Ba", n"Bi", n"Br", n"C", n"Ca", n"Ce", n"Cl", n"Co", n"Cr", n"Cu", n"F", n"Fe", n"K", n"Mg", n"Mn", n"Na", n"Nd", n"Ni",
-        n"O", n"P", n"Pb", n"S", n"Sb", n"Si", n"Sn", n"Sr", n"Ti", n"V", n"W", n"Zn", n"Zr" )
-    refs = Dict{Element,Spectrum}( elm => loadspectrum(joinpath(zeptest,"Standards","$(elm.symbol) std.msa")) for elm in relms)
-    det = matching(refs[n"Fe"],132.0)
-    res = quantify(zep, det, refs, withUncertainty=true)
+    refs = references( [
+        reference(n"Ag", joinpath(zeptest,"Standards","Ag std.msa")),
+        reference(n"Al", joinpath(zeptest,"Standards","Al std.msa")),
+        reference(n"Ba", joinpath(zeptest,"Standards","Ba std.msa")),
+        reference(n"Bi", joinpath(zeptest,"Standards","Bi std.msa")),
+        reference(n"Br", joinpath(zeptest,"Standards","Br std.msa")),
+        reference(n"C", joinpath(zeptest,"Standards","C std.msa")),
+        reference(n"Ca", joinpath(zeptest,"Standards","Ca std.msa")),
+        reference(n"Ce", joinpath(zeptest,"Standards","Ce std.msa")),
+        reference(n"Cl", joinpath(zeptest,"Standards","Cl std.msa")),
+        reference(n"Co", joinpath(zeptest,"Standards","Co std.msa")),
+        reference(n"Cr", joinpath(zeptest,"Standards","Cr std.msa")),
+        reference(n"Cu", joinpath(zeptest,"Standards","Cu std.msa")),
+        reference(n"F", joinpath(zeptest,"Standards","F std.msa")),
+        reference(n"Fe", joinpath(zeptest,"Standards","Fe std.msa")),
+        reference(n"K", joinpath(zeptest,"Standards","K std.msa")),
+        reference(n"Mg", joinpath(zeptest,"Standards","Mg std.msa")),
+        reference(n"Mn", joinpath(zeptest,"Standards","Mn std.msa")),
+        reference(n"Na", joinpath(zeptest,"Standards","Na std.msa")),
+        reference(n"Nd", joinpath(zeptest,"Standards","Nd std.msa")),
+        reference(n"Ni", joinpath(zeptest,"Standards","Ni std.msa")),
+        reference(n"O", joinpath(zeptest,"Standards","O std.msa")),
+        reference(n"P", joinpath(zeptest,"Standards","P std.msa")),
+        reference(n"Pb", joinpath(zeptest,"Standards","Pb std.msa")),
+        reference(n"S", joinpath(zeptest,"Standards","S std.msa")),
+        reference(n"Sb", joinpath(zeptest,"Standards","Sb std.msa")),
+        reference(n"Si", joinpath(zeptest,"Standards","Si std.msa")),
+        reference(n"Sn", joinpath(zeptest,"Standards","Sn std.msa")),
+        reference(n"Sr", joinpath(zeptest,"Standards","Sr std.msa")),
+        reference(n"Ti", joinpath(zeptest,"Standards","Ti std.msa")),
+        reference(n"V", joinpath(zeptest,"Standards","V std.msa")),
+        reference(n"W", joinpath(zeptest,"Standards","W std.msa")),
+        reference(n"Zn", joinpath(zeptest,"Standards","Zn std.msa")),
+        reference(n"Zr", joinpath(zeptest,"Standards","Zr std.msa")) ],
+        132.0
+    )
+    @time quantify(zep, refs, withUncertainty=true)
+    res = @time quantify(zep, refs, withUncertainty=false)
     @test isapprox(res[6,:FE], 94.87, atol=0.01)
     @test isapprox(res[26,:CA], 23.48, atol=0.01)
-    @test isapprox(res[169, :BA], 39.37, atol=0.01)
+    @test isapprox(res[169, :BA], 39.38, atol=0.01)
     @test res[160,:FIRSTELM]==n"Si"
     @test res[172,:SECONDELM]==n"Ti"
     @test res[179,:THIRDELM]==n"Zn"
     @test ismissing(res[177,:FOURTHELM])
     @test res[195,:FOURTHELM]==n"K"
-    NeXLParticle.writeZep(res, res.headerfile)
-    res2 = Zeppelin(res.headerfile)
+    @test classes(zep)==classes(res)
+    outfile = tempname()*".hdz"
+    NeXLParticle.writeZep(res, outfile)
+    res2 = Zeppelin(outfile)
+    @test classes(zep) == classes(res2)
     @test isapprox(res2[6,:FE], 94.87, atol=0.01)
     @test isapprox(res2[26,:CA], 23.48, atol=0.01)
-    @test isapprox(res2[169, :BA], 39.37, atol=0.01)
+    @test isapprox(res2[169, :BA], 39.38, atol=0.01)
     @test res2[160,:FIRSTELM]==n"Si"
     @test res2[172,:SECONDELM]==n"Ti"
     @test res2[179,:THIRDELM]==n"Zn"
     @test ismissing(res2[177,:FOURTHELM])
     @test res2[195,:FOURTHELM]==n"K"
-#@time res=NeXLParticle.quantify(zep, det, refs, withUncertainty=false);
+    @test all(res[:,"CLASS"] .== zep[:,"CLASS"])
+    @test all(res[:,"CLASS"] .== res2[:,"CLASS"])
+    res3 = @time classify(res, NeXLParticle.BaseRules)
+    writeZep(res3, joinpath(homedir(),"Desktop","tmp.hdz"))
+    @test repr(res3[2, "CLASS"]) == "Pyrite (FeS2)"
+    @test (r->(r.FE > 20) && (r.S > 20) && (r.FE + r.S > 80))(res3[2,:]) 
+    @test repr(res3[20, "CLASS"]) == "Dolomite"
+    @test (r -> (r.CA > 40) && (r.MG > 10) && (r.CA + r.MG > 70))(res3[20,:]) 
 end

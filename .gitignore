@@ -6,3 +6,4 @@ Manifest.toml
 weave/*.html
 weave/jl_*/*
 test/Artifacts.toml
+docs/build/*

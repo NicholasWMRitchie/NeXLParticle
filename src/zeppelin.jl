@@ -8,92 +8,91 @@ using CoordinateTransformations: AbstractAffineMap
 
 Base.convert(::Type{Symbol}, elm::Element) = Symbol(uppercase(elm.symbol))
 
+
 """
 Handles RJ Lee-style Zeppelin particle data sets.
 """
 struct Zeppelin
     headerfile::String
     header::SortedDict{String,String}
-    elms::SortedSet{Element}
-    classes::SortedDict{Int, String}
     data::DataFrame
+    classnames::Vector{String}
     
     function Zeppelin( #
         headerfile::String,
         header::AbstractDict{String,String},
-        elms::Union{AbstractSet{Element}, AbstractVector{Element}},
-        classes::AbstractDict{String,String},
-        data::DataFrame
+        data::DataFrame,
+        classnames::AbstractVector{String}
     )
         function _massagehdz(header)
             res = SortedDict(header)
-            foreach(hi -> if hi in keys(header) delete!(res, hi) end, ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ))
-            foreach(f->if startswith(f,"ELEM") delete!(res,f) end, keys(header))
-            foreach(f->if startswith(f,"CLASS") delete!(res,f) end, keys(header))
+            for hi in keys(header)
+                if  hi in ( "PARTICLE_PARAMETERS", "PARAMETERS", "HEADER_FMT" ) || # 
+                    startswith(hi, "ELEM") || startswith(hi, "CLASS")
+                    delete!(res, hi)
+                end
+            end
             return res
         end
-        # Mostly converts columns to categorical as desired...
-        function _massagepxz(header, pxz)::DataFrame
-            res = copy(pxz)
-            sortclasses(c1, c2) = isless(parse(Int, c1[6:end]), parse(Int, c2[6:end]))
-            sortedkeys = sort(collect(filter(c -> !isnothing(match(r"^CLASS\d+", c)), collect(keys(header)))), lt = sortclasses)
-            clsnames = append!(["--None--"], map(c -> header[c], sortedkeys))
+        # Mostly converts to pretty printing
+        function _massagepxz(zep)
+            zd = zep.data
+            # Find all the class name mappings
             for col in ("CLASS", "VERIFIEDCLASS")
-                ic = findfirst(nm->nm==col, names(res))
-                if !isnothing(ic)
-                    cls = categorical(Union{String,Missing}[ clsnames... ], ordered=true)[1:0] # empty but with correct levels
-                    foreach(name->push!(cls, name), map(cl -> get(clsnames, convert(Int, cl) + 2, "####"), pxz[:, col]))
-                    select!(res, Not(ic))
-                    insertcols!(res, ic, col=>cls)
+                ic = findfirst(nm->nm == col, names(zd))
+                if (!isnothing(ic)) && (eltype(zd[:,ic]) <: Integer)
+                    old = zd[:, ic]
+                    select!(zd, Not(ic))
+                    insertcols!(zd, ic, col => map(ncl->ZepClass(zep, ncl), old))
                 end
             end
             for col in ( "FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
-                ic = findfirst(nm->nm==col, names(res))
-                if !isnothing(ic)
-                    select!(res, Not(ic))
-                    insertcols!(res, ic, col=>map(z-> z in 1:length(elements) ? elements[z] : missing, pxz[:,col]))
+                ic = findfirst(nm->nm==col, names(zd))
+                if !isnothing(ic) && (eltype(zd[:,ic]) <: Integer)
+                    old = zd[:, ic]
+                    select!(zd, Not(ic))
+                    insertcols!(zd, ic, col=>map(z->z in 1:100 ? elements[z] : missing, old))
                 end
             end
             for col in ( "XDAC", "YDAC", "TYPE_4ET_", "TYPE4ET" )
-                ic = findfirst(nm->nm==col, names(res))
+                ic = findfirst(nm->nm==col, names(zd))
                 if !isnothing(ic)
-                    select!(res, Not(ic))
+                    select!(zd, Not(ic))
                 end
             end
-            return res
         end
-        function _massageclasses(classes::AbstractDict{String, String})
-            return SortedDict{Int, String}( parse(Int, key[6:end]) => val for (key, val) in classes )
-        end
-        new(
-            headerfile,
+        zep = new(
+            endswith(headerfile, r"\.[h|H][d|D][z|Z]$") ? headerfile : "$headerfile.hdz",
             _massagehdz(header),
-            SortedSet(elms),
-            _massageclasses(classes),
-            _massagepxz(header, data)
+            copy(data),
+            classnames
         )
+        _massagepxz(zep)
+        return zep
     end
 
     Zeppelin( hdzfilename::String) = loadZep( hdzfilename)
-
-    function Zeppelin( #
-        headerfile::String,
-        header::AbstractDict{String,String},
-        data::DataFrame,
-    )
-        Zeppelin(
-            headerfile,
-            header,
-            filter(elm -> uppercase(elm.symbol) in names(data), PeriodicTable.elements[1:94]),
-            Dict{String,String}(),
-            data,
-        )
-    end
 end
 
-Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.elms), copy(z.classes), copy(z.data))
+struct ZepClass
+    zep::Zeppelin
+    index::Int
+end
+function Base.show(io::IO, zc::ZepClass)
+    if zc.index == -1
+        print(io, "-")
+    elseif zc.index+1 in eachindex(zc.zep.classnames)
+        print(io, zc.zep.classnames[zc.index+1])
+    else
+        print(io, "**UNCLASSIFIED**")
+    end
+end
+Base.:(==)(zc1::ZepClass, zc2::ZepClass) = zc1.index==zc2.index
 
-function loadZep( hdzfilename::String)
+
+Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.data), copy(z.classnames))
+
+function loadZep( hdzfilename::String)::Zeppelin
     remapcolumnnames = Dict(
         "PART#" => "NUMBER",
         "PARTNUM" => "NUMBER",
@@ -146,6 +145,11 @@ function loadZep( hdzfilename::String)
         "COMP_HASH" => "COMPHASH",
         "PSEM_CLASS" => "CLASS",
     )
+    function _extractclassnames(header)
+        # Find all the class name mappings
+        cn = SortedDict(parse(Int, cn[6:end]) => header[cn] for cn in filter(c -> !isnothing(match(r"^CLASS\d+", c)), collect(keys(header))))
+        return map(i -> get(cn, i, "CLASS$i"), 0:maximum(keys(cn)))
+    end    
     columnnames(cols) = uppercase.(map(cn -> get(remapcolumnnames, cn, cn), map(c -> c[1], cols)))
     header, columns, hdr = Dict{String,String}(), [], true
     open(hdzfilename, enc"WINDOWS-1252","r") do f
@@ -170,9 +174,7 @@ function loadZep( hdzfilename::String)
         missingstring="-",
         decimal='.'
     ) |> DataFrame
-    #elms = filter(z -> uppercase(z.symbol) in names(pxz), PeriodicTable.elements[1:94])
-    #classes = Dict{String, String}(key=>header[key] for key in filter(f->startswith(f, "CLASS") && (f ≠ "CLASSES"),keys(header)))
-    return Zeppelin( hdzfilename, header, pxz)
+    return Zeppelin( hdzfilename, header, pxz, _extractclassnames(header))
 end
 
 function Base.show(io::IO, zep::Zeppelin)
@@ -181,9 +183,9 @@ end
 
 Base.size(z::Zeppelin) = size(z.data)
 
-classes(zep::Zeppelin) = zep.classes
+classes(zep::Zeppelin) = levels(zep[:,"CLASS"])
 
-NeXLCore.elms(zep::Zeppelin) = zep.elms
+NeXLCore.elms(zep::Zeppelin) = SortedSet(filter(elm -> uppercase(elm.symbol) in names(zep.data), PeriodicTable.elements[1:94]))
 
 header(zep::Zeppelin) = SortedDict(zep.header)
 
@@ -212,18 +214,19 @@ function DataAPI.describe(zeps::AbstractVector{Zeppelin}; dcol=:DAVG, nelms=2)
 end
 
 function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
+    els = elms(zep)
     function sortedstats(rows)
-        tmp = [ ( elm, summarystats(zep[rows,convert(Symbol, elm)])) for elm in zep.elms ]
+        tmp = [ ( elm, summarystats(zep[rows,convert(Symbol, elm)])) for elm in els ]
         return sort!(tmp, lt=(v1,v2)->isless(v1[2].mean,v2[2].mean),rev=true)
     end
-    cnelms = min(length(zep.elms), nelms)
+    cnelms = min(length(els), nelms)
     ds = summarystats(zep[:,dcol])
     clss = String["All"]
     szs = Int[size(zep.data,1)]
     minds = Float64[ ds.min ]
     medds = Float64[ ds.median ]
     maxds = Float64[ ds.max ]
-    sbcm = StatsBase.countmap(zep[:,:CLASS])
+    sbcm = StatsBase.countmap(zep[:,"CLASS"])
     for (cn, _) in sbcm
         rows = rowsclass(zep,String(cn))
         #if length(rows)>0
@@ -293,9 +296,9 @@ end
 Returns the name of the spectrum/image file for the particle in the specified row.
 """
 function spectrumfilename(zep::Zeppelin, row::Int, dir::AbstractString = "MAG", ext::AbstractString = ".tif", relocated=false)
-    mag = hasproperty(zep.data, :MAG) ? convert(Int,trunc(zep.data[row, :MAG])) : 0
+    mag = hasproperty(zep.data, :MAG) ? convert(Int, trunc(zep.data[row, :MAG])) : 0
     # First check if a spectrum file exists
-    tmp=repr(zep.data[row,:NUMBER])
+    tmp=repr(zep.data[row, :NUMBER])
     if relocated && isdir(joinpath(dirname(zep.headerfile),"RELOCATED"))
         for n in 6:-1:4
             fn = joinpath(dirname(zep.headerfile), "RELOCATED", repeat('0',max(0,n-length(tmp)))*tmp*ext)
@@ -341,8 +344,8 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true, relocated=true)::Uni
         try
             at[:BeamEnergy] = beamenergy(zep, get(at, :BeamEnergy, 20.0e3))
             at[:ProbeCurrent] = get(at, :ProbeCurrent, probecurrent(zep, 1.0))
-            at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in zep.elms))
-            at[:Name] = "P[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASS])]"
+            at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in elms(zep)))
+            # at[:Name] = "P[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASS])]"
         catch
             @info "Error adding properties to ASPEX TIFF file."
         end
@@ -351,15 +354,14 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true, relocated=true)::Uni
 end
 
 function iszeppelin(filename::String)
-    res=false
-    open(filename) do ios
+    open(filename, enc"WINDOWS-1252") do ios
         seekstart(ios)
         if isequal(uppercase(String(read(ios,11))),"PARAMETERS=")
             readline(ios) # read the rest of the line
-            res = isequal(uppercase(readline(ios)),"HEADER_FMT=ZEPP_1")
+            return isequal(uppercase(readline(ios)),"HEADER_FMT=ZEPP_1")
         end
     end
-    return res
+    return false
 end
 
 function writeZep(zep::Zeppelin,  hdzfilename::String)
@@ -410,26 +412,24 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
         "CLASS" => "PSEM_CLASS\t1\tINT16",
         "TYPE_4ET_" => "Type[4ET]\t1\tLONG",
     )
-    merge!(remapcolumnnames, Dict( uppercase(elm.symbol) => "$(uppercase(elm.symbol))\t%(k)\tFLOAT" for elm in zep.elms))
-    merge!(remapcolumnnames, Dict( "U_$(uppercase(elm.symbol))_"  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in zep.elms))
+    els = elms(zep)
+    merge!(remapcolumnnames, Dict( uppercase(elm.symbol) => "$(uppercase(elm.symbol))\t%(k)\tFLOAT" for elm in els))
+    merge!(remapcolumnnames, Dict( "U_$(uppercase(elm.symbol))_"  => "U[$(uppercase(elm.symbol))]\t%(k)\tFLOAT" for elm in els))
     headeritems = copy(zep.header)
     # add back the element tags
-    for (i,elm) in enumerate(zep.elms)
+    for (i,elm) in enumerate(els)
         headeritems["ELEM$(i-1)"] = "$(elm.symbol) $(z(elm)) 1"
     end
-    headeritems["ELEMENTS"] = "$(length(zep.elms))"
+    headeritems["ELEMENTS"] = "$(length(els))"
     if "CLASS" in names(zep.data)
-        clsdata=zep.data[:,:CLASS]
-        for (i,cls) in enumerate(levels(clsdata))
-            # println("CLASS$(i-1) => $cls")
-            headeritems["CLASS$(i-1)"]=cls
-            headeritems["CLASSES"]="$(i+1)"
+        for (i, cn) in enumerate(zep.classnames)
+            headeritems["CLASS$(i-1)"]=cn
         end
     end
     headeritems["TOTAL_PARTICLES"] = "$(size(zep.data,1))"
     # write out the header
     colnames = names(zep.data)
-    open(hdzfilename,"w") do ios
+    open(hdzfilename, enc"WINDOWS-1252", "w") do ios
         println(ios, "PARAMETERS=$(length(headeritems)+size(zep.data,2)+2)")
         println(ios, "HEADER_FMT=ZEPP_1")
         foreach(hk->println(ios,"$(hk)=$(headeritems[hk])"), sort(collect(keys(headeritems))))
@@ -440,18 +440,15 @@ function writeZep(zep::Zeppelin,  hdzfilename::String)
     end
     pxzfilename = replace( hdzfilename, r".[h|H][d|D][z|Z]"=>".pxz")
     zd = DataFrame(zep.data)
-    # Replace categorical data with the index (either into CLASS# in header or z(elm))
+    # Replace prettified items with the index (either into CLASS# in header or z(elm))
     for (ic, col) in enumerate(names(zd))
         if col in ("CLASS", "VERIFIEDCLASS", "FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
             coldata=zd[:,col]
-            select!(zd,Not(ic))
+            select!(zd ,Not(ic))
             if col in ( "CLASS", "VERIFIEDCLASS" )
-                @assert coldata isa CategoricalArray "Whoops! $col is a $(typeof(zd[:,col]))"
-                insertcols!(zd, ic, col=>[ coldata.refs[i]-1  for i in eachindex(coldata) ]) # CLASS
+                insertcols!(zd, ic, col => [ zc.index for zc in coldata ]) # CLASS
             elseif col in ("FIRSTELM", "SECONDELM", "THIRDELM", "FOURTHELM" )
-                insertcols!(zd, ic, col=>[ ismissing(elm) ? 0 : z(elm)  for elm in coldata ]) # Element
-            else
-                @info "Unanticipated column $col"
+                insertcols!(zd, ic, col => [ ze isa Element ? z(ze) : 0 for ze in coldata ]) # Element
             end
         end
     end
@@ -574,7 +571,7 @@ function rowsmax(zep::Zeppelin, col::Symbol; n::Int=10000000, classname::Union{M
         s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
         return getindex.(s[intersect(eachparticle(zep),1:n)],1)
     else
-        cr = filter(r->zep.data[r,:CLASS]==classname, eachparticle(zep))
+        cr = filter(r->zep.data[r,"CLASS"]==classname, eachparticle(zep))
         d = collect(zip(cr, zep.data[cr,col]))
         s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=true)
         return getindex.(s[intersect(eachindex(cr),1:n)],1)
@@ -598,7 +595,7 @@ function rowsmin(zep::Zeppelin, col::Symbol; n::Int=20, classname::Union{Missing
         s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=false)
         return getindex.(s[intersect(eachparticle(zep),1:n)],1)
     else
-        cr = filter(r->zep.data[r,:CLASS]==classname, eachparticle(zep))
+        cr = filter(r->zep.data[r,"CLASS"]==classname, eachparticle(zep))
         d = collect(zip(cr, zep.data[cr,col]))
         s = sort(d, lt=(a1,a2)->isless(a1[2],a2[2]),rev=false)
         return getindex.(s[intersect(eachindex(cr),1:n)],1)
@@ -617,7 +614,7 @@ Example:
     plot(zep, rowsclass(zep, "Calcite", shuffle=true, n=10), xmax=8.0e3)
 """
 function rowsclass(zep::Zeppelin, classname::AbstractString; shuffle=false, n=1000000)
-    res = filter(i->zep.data[i,:CLASS]==classname, eachparticle(zep))
+    res = filter(i->zep.data[i,"CLASS"]==classname, eachparticle(zep))
     return (shuffle ? Random.shuffle(res) : res)[intersect(eachindex(res),1:n)]
 end
 
@@ -635,7 +632,7 @@ with only the rows for which the function evaluated true.
 
 Example:
 
-    gsr = filter(row->startswith( String(row[:CLASS]), "GSR."), zep)
+    gsr = filter(row->startswith( String(row["CLASS"]), "GSR."), zep)
 
 """
 Base.filter(filt::Function, zep::Zeppelin) = filter(r->filt(zep.data[r,:]), eachparticle(zep))
@@ -658,8 +655,8 @@ The result is a copy of `zep` with the columns `:XABS` and `:YABS` replaced with
 """
 function translate(zep::Zeppelin, am::AbstractAffineMap)::Zeppelin
     res=copy(zep)
-    foreach(eachrow(res)) do r
-        ( r[:XABS], r[:YABS] ) = am(SVector(r[:XABS], r[:YABS]))
+    foreach(eachrow(res.data)) do r
+        ( r.XABS, r.YABS ) = am(SVector(r.XABS, r.YABS))
     end
     return res
 end

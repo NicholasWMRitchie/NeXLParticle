@@ -6,6 +6,7 @@ using Reexport
 using Requires
 using StatsBase
 using AxisArrays
+using ThreadsX
 
 @reexport using NeXLSpectrum
 
@@ -37,7 +38,10 @@ include("classrule.jl")
 export classify
 export OrderedRuleSet
 export GSRRules
+
+include("baseRules.jl")
 export BaseRules
+include("nullRules.jl")
 export NullRules
 
 include("multiternary.jl")

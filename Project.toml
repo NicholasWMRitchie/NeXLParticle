@@ -2,7 +2,7 @@ name = "NeXLParticle"
 uuid = "9f92fee6-ed62-42c3-b009-0e4f934456c2"
 authors = ["Nicholas W.M. Ritchie <nicholas.ritchie@nist.gov>"]
 repo-url = "https://github.com/usnistgov/NeXLParticle.jl"
-version = "0.1.1-dev"
+version = "0.1.1"
 
 [deps]
 AxisArrays = "39de3d68-74b9-583c-8d2d-e117c070f3a9"

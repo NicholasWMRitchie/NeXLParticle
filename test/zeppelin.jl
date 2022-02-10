@@ -82,9 +82,10 @@ using DataDeps
     @test all(res[:,"CLASS"] .== zep[:,"CLASS"])
     @test all(res[:,"CLASS"] .== res2[:,"CLASS"])
     res3 = @time classify(res, NeXLParticle.BaseRules)
-    writeZep(res3, joinpath(homedir(),"Desktop","tmp.hdz"))
+    writeZep(res3, joinpath(tempdir(),"tmp.hdz"))
     @test repr(res3[2, "CLASS"]) == "Pyrite (FeS2)"
     @test (r->(r.FE > 20) && (r.S > 20) && (r.FE + r.S > 80))(res3[2,:]) 
     @test repr(res3[20, "CLASS"]) == "Dolomite"
     @test (r -> (r.CA > 40) && (r.MG > 10) && (r.CA + r.MG > 70))(res3[20,:]) 
+    rm(joinpath(tempdir(),"tmp.hdz"))
 end

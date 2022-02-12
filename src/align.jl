@@ -78,73 +78,65 @@ function rough_align(
     ps2::AbstractVector{<:StaticVector{2, T}}; #
     nnsize=3, #
     tol=0.001, #
-    corrtol=10.0 #
-)::NTuple{2, AffineMap} where { T<: AbstractFloat }
-    # For each data set find the two nearest neighbors for each particle
-    dist1 = collect(zip(knn(KDTree(ps1), ps1, nnsize, true)...))
-    dist2 = collect(zip(knn(KDTree(ps2), ps2, nnsize, true)...))
+)::NTuple{2, AffineMap} where { T <: AbstractFloat }
+    # For each data set find the (nnsize-1) nearest neighbors for each particle
+    idx1, _ = knn(KDTree(ps1), ps1, nnsize, true)
+    idx2, _ = knn(KDTree(ps2), ps2, nnsize, true)
     # Compute the separations between all pairs of nearest neighbors
-    function compute_separations(dist, pts)
-        function permute2(idx)
-            ( ( idx[i], idx[j] ) for i in eachindex(idx) for j in i+1:length(idx) )
-        end
-        # add a sign to indicate which clockwise/counter-clockwise (additional information to work with!)
-        function signme(i1, i2, i, j)
-            (i != i1) || (j != i2) ? sign(LinearAlgebra.cross(pts[i1]-pts[i2], pts[i]-pts[j])) : 1.0
-        end
-        seps= map(dist) do (idx, _)
-            SVector{nnsize*(nnsize-1) ÷ 2, Float64}(signme(idx[1], idx[2], i, j) * norm(pts[i] - pts[j]) for (i,j) in permute2(idx) )
-        end
-        return ( map(d->d[1], dist), seps)
+    function compute_separations(idxs, pts)
+        # add a sign to indicate clockwise vs counter-clockwise
+        signednorm(a, b)::T = (a[1]*b[2] < a[2]*b[1] ? -one(T) : one(T)) * norm(b)
+        map(idxs) do idx
+            # DOF = nnsize particles times 2 dimensions - (rotate, x_off, y_off)
+            dnn12 = pts[idx[1]] - pts[idx[2]]
+            SA[ collect(signednorm(dnn12, pts[idx[i]] - pts[idx[j]]) for i in Base.OneTo(nnsize) for j in i+1:nnsize)... ]
+        end # separations 
     end
     # Transform the particle data into "nearest neighbor separation space"
-    si1 = compute_separations(dist1, ps1)
-    si2 = compute_separations(dist2, ps2)
+    si1 = compute_separations(idx1, ps1)
+    si2 = compute_separations(idx2, ps2)
     # Match particle groupings between ps1 and ps2 by matching the ones that are most similar in shape and size
-    correspondences = collect(zip(eachindex(si1[2]), nn(KDTree(si2[2]), si1[2])...))
+    correspondences = collect(zip(eachindex(idx1), nn(KDTree(si2), si1)...)) # index in idx1, index in idx2, distance
     # Order the correspondences by similarity
-    sort!(correspondences, lt=(a,b)->a[3]<b[3])
-    # Determine the last index of the "best correspondences" (take at least 10)
-    cmin = correspondences[findfirst(c-> c[3] > 0.0, correspondences)][3]
-    last = max(min(length(correspondences), 10), findfirst(c->c[3] > corrtol*cmin, correspondences))
+    sort!(correspondences, lt = (a,b) -> a[3] < b[3])
     # These functions return the equivalent i-th triplet of particle coordinates in either sp1 or sp2
-    triplet1(i::Integer) = ps1[si1[1][correspondences[i][1]]]
-    triplet2(i::Integer) = ps2[si2[1][correspondences[i][2]]]
+    triplet1(i::Integer) = ps1[idx1[correspondences[i][1]]]
+    triplet2(i::Integer) = ps2[idx2[correspondences[i][2]]]
     # Compute the "center-of-gravity" for a series of coordinates
     cog(coords) = mean(coords)
     # Now perform a second filter.  Look at the center-of-gravity for the matching triplets.
     # Build a list of pairs for which the distance between the cog for triplet1(i) and triplet2(i) are similar.
-    res = Tuple{Int,Int,Float64}[]
-    for ii in 1:last, jj in ii+1:last
-        ndc1, ndc2 = norm(cog(triplet1(ii))-cog(triplet1(jj))), norm(cog(triplet2(ii))-cog(triplet2(jj)))
-        if abs(ndc1-ndc2) < nnsize*(nnsize-1)*tol && (ndc1 > nnsize*(nnsize-1)*tol)
-            push!(res, (ii, jj, abs(ndc1 - ndc2)))
+    res = Tuple{Int,Int,Float64,Float64}[] # index into tripletX(), index into tripletX(), difference in separation, angle between
+    clast = min(length(correspondences), 40)
+    for ii in 1:clast, jj in ii+1:clast
+        dc1, dc2 = cog(triplet1(ii))-cog(triplet1(jj)), cog(triplet2(ii))-cog(triplet2(jj))
+        ndc1, ndc2 = norm(dc1), norm(dc2)
+        # if the norms are exactly equal to zero then they likely represent the same triplets but starting with a different seed particle
+        if abs(ndc1-ndc2) < 6*tol && ((ndc1!=0.0) || (ndc2!=0.0))
+            push!(res, (ii, jj, abs(ndc1 - ndc2), acos(dc1⋅dc2/(ndc1*ndc2))))
         end
     end
-    sort!(res, lt=(a,b)->a[3]<b[3])
     # res now contains the indices into ps1 & ps2 for triplets that match in shape and separation
-    rmin = res[findfirst(r->r[3] > 0.0, res)][3]
-    lastres = max(min(10,length(res)), findfirst(r->r[3]>10.0*rmin, res))   
-    rots = map(res[1:lastres]) do (ii, jj)
-        dc1, dc2 = cog(triplet1(ii))-cog(triplet1(jj)), cog(triplet2(ii))-cog(triplet2(jj))
-        acos(dot(dc1,dc2)/(norm(dc1)*norm(dc2)))
-    end
-    # Construct a histogram to determine the most probable angle...
-    bins = 0.0:π/180.0:2π
-    h = fit(Histogram, rots, bins)
-    θi = findmax(h.weights)[2] # most probably rotation angle
+    sort!(res, lt=(a,b)->a[3]<b[3]) # sort by difference in length
+    # Handles cyclic boundaries on angle measurement
     function between_angles(ϕ, ϕmin, ϕmax)
         @assert ϕmin <= ϕmax
         ϕ, ϕmin, ϕmax = mod(ϕ, 2π), mod(ϕmin, 2π), mod(ϕmax, 2π)
         return (ϕmin != ϕmax) && (ϕmin < ϕmax ? (ϕ > ϕmin) && (ϕ < ϕmax) : (ϕ > ϕmin) || (ϕ < ϕmax))
-    end    
+    end
+    # Construct a histogram to determine the most probable angle...
+    bins = 0.0:π/180.0:2π
+    h = fit(Histogram, map(r->r[4], res), bins)
+    θi = findmax(h.weights)[2] # most probably rotation angle
+    # Find the indices of corresponding pairs of groups close to this angle
+    idxs = filter(i->between_angles(res[i][4], bins[θi]-π/180, bins[θi+1]+π/180), eachindex(res))
+    good = res[idxs]
+    θ = mean(r->r[4], good)
+    goodidxs = unique(mapreduce(g->[ g[1], g[2] ], append!, good)) # g[1] & g[2] are indices of corresponding particle groups
     # Determine the indices of groupings close to this angle
-    idxs = filter(i->between_angles(rots[i], bins[θi]-π/180, bins[θi+1]+π/180), eachindex(rots))
     # Use these indices to compute the best estimates of the rotation and center-of-gravity for ps1 and ps2
-    θ = mean(rots[idxs])
-    good=unique(mapreduce(x->collect(x[1:2]), append!, res[idxs]))
-    cog1 = cog(map(ii->cog(triplet1(ii)), good))
-    cog2 = cog(map(ii->cog(triplet2(ii)), good))
+    cog1 = cog(map(i->cog(triplet1(i)), goodidxs))
+    cog2 = cog(map(i->cog(triplet2(i)), goodidxs))
     # Convert this into two affine transformations.
     return ( 
         LinearMap(one(RotMatrix{2, Float64}))∘inv(Translation(cog1)),
@@ -165,7 +157,7 @@ function correspondences(ps1::AbstractVector{<:StaticVector{2, T}}, ps2::Abstrac
     keep = map(eachindex(idx1)) do i
         # Reciprocal matches within tolerance
         b = (i==idx2[idx1[i]]) && (dist1[i] < tol)
-        invert ? !b : b
+        invert ? (!b) : b
     end
     m1 = idx1[keep]
     m2 = idx2[m1]
@@ -181,7 +173,7 @@ to refine the positions of `ps2` through rotation and translation to best match 
 Returns a transformed subset of `ps2` that well matches `ps1`.
 """
 function refined_alignment(ps1::AbstractVector{<:StaticVector{2, T}}, ps2::AbstractVector{<:StaticVector{2, T}}; tol=0.01) where {T <: AbstractFloat}
-    c1, c2 = correspondences2(ps1, ps2; tol=tol, invert=false)
+    c1, c2 = correspondences(ps1, ps2; tol=tol, invert=false)
     cps1, cps2 = ps1[c1], ps2[c2]
     com1, com2 = mean(cps1), mean(cps2)
     cpst1, cpst2 = Translation(-com1).(cps1), Translation(-com2).(cps2)

@@ -42,7 +42,7 @@ function measure_particles(rnd::AbstractRNG, pd::Vector{<:SVector{2}}, offset::S
     @assert frac <= 1.0 "The fraction measured `frac` must be less than or equal to 1.0."
     rot = RotMatrix{2}(θ)
     n = Distributions.Normal(0.0, eps)
-    return shuffle!(map(filter(f->rand(rnd)<frac, pd)) do part
+    return shuffle!(rnd, map(filter(f->rand(rnd)<frac, pd)) do part
         rot*part + offset + rand(rnd, n, 2)
     end)
 end
@@ -85,7 +85,7 @@ function rough_align(
     # Compute the separations between all pairs of nearest neighbors
     function compute_separations(idxs, pts)
         # add a sign to indicate clockwise vs counter-clockwise
-        signednorm(a, b)::T = (a[1]*b[2] < a[2]*b[1] ? -one(T) : one(T)) * norm(b)
+        signednorm(a, b)::T = (a[1]*b[2] > a[2]*b[1] ? -one(T) : one(T)) * norm(b)
         map(idxs) do idx
             # DOF = nnsize particles times 2 dimensions - (rotate, x_off, y_off)
             dnn12 = pts[idx[1]] - pts[idx[2]]
@@ -111,9 +111,11 @@ function rough_align(
     for ii in 1:clast, jj in ii+1:clast
         dc1, dc2 = cog(triplet1(ii))-cog(triplet1(jj)), cog(triplet2(ii))-cog(triplet2(jj))
         ndc1, ndc2 = norm(dc1), norm(dc2)
+        # Use determinant to diffentiate 0 to π from π to 2π
+        dets = dc1[1]*dc2[2] > dc1[2]*dc2[1] ? -one(T) : one(T)
         # if the norms are exactly equal to zero then they likely represent the same triplets but starting with a different seed particle
-        if abs(ndc1-ndc2) < 6*tol && ((ndc1!=0.0) || (ndc2!=0.0))
-            push!(res, (ii, jj, abs(ndc1 - ndc2), acos(dc1⋅dc2/(ndc1*ndc2))))
+        if abs(ndc1-ndc2) < 6*tol && ((ndc1>1.0e-12) || (ndc2>1.0e-12))
+            push!(res, (ii, jj, abs(ndc1 - ndc2), mod(dets*acos(clamp(dc1⋅dc2/(ndc1*ndc2),-1.0,1.0)),2π)))
         end
     end
     # res now contains the indices into ps1 & ps2 for triplets that match in shape and separation
@@ -133,7 +135,6 @@ function rough_align(
     good = res[idxs]
     θ = mean(r->r[4], good)
     goodidxs = unique(mapreduce(g->[ g[1], g[2] ], append!, good)) # g[1] & g[2] are indices of corresponding particle groups
-    # Determine the indices of groupings close to this angle
     # Use these indices to compute the best estimates of the rotation and center-of-gravity for ps1 and ps2
     cog1 = cog(map(i->cog(triplet1(i)), goodidxs))
     cog2 = cog(map(i->cog(triplet2(i)), goodidxs))

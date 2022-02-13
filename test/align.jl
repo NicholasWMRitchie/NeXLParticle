@@ -1,115 +1,117 @@
+using Test
 using NeXLParticle
-using DataFrames
+using StaticArrays
+using GeometryBasics
+using Random
+using LinearAlgebra
+using Rotation
+#using Gadfly
 
-const align_example = false
-const align_example2 = true
-const hist_test = false
+@testset "rough_align" begin
+    @testset "rough_align (BADFOOD)" begin
+        rnd = MersenneTwister(0xBADF00D)
+        npts = 1000
+        bounds = Rect2((-5.0, -1.5), (10.0,3.0))
+        xy = NeXLParticle.generate_ground_truth(rnd, bounds, npts)
+        ps1 = NeXLParticle.measure_particles(rnd, xy, SA[-10.0,5.0], deg2rad(12.0), 0.8, 0.003)
+        ps2 = NeXLParticle.measure_particles(rnd, xy, SA[-2.0,-1.0], deg2rad(213.0), 0.78, 0.003)
 
-function subsample(df, center, θ, dims)
-    df2 = DataFrame(x=Float64[], y=Float64[], s=Int[])
-    rot = [ cos(θ) -sin(θ); sin(θ) cos(θ) ]
-    for r in eachrow(df)
-        pp = rot * [ r[:x] - center[1], r[:y] - center[2] ]
-        if abs(pp[1]) < dims[1] && abs(pp[2]) < dims[2]
-            push!(df2, [pp..., r[:s]])
-        end
+        (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
+        @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
+        @test isapprox(ct1.translation, [9.334994200384267, -5.198016372692697], atol=1.0e-8)
+        @test isapprox(ct2.linear, [-0.9339031207175221 -0.35752616843256846; 0.35752616843256846 -0.9339031207175221], atol=1.0e-8)
+        @test isapprox(ct2.translation, [-2.8904928250171156, -0.4162956186599809], atol=1.0e-8 )
+        @test isapprox(RotMatrix{2}(deg2rad(12.0-213.0)), ct2.linear, atol = 0.002)
+
+        ts1, ts2 = ct1.(ps1), ct2.(ps2)
+        c1, c2 = correspondences(ts1, ts2; tol=0.01)
+        @test norm(ts1[c1[1]]-ts2[c2[1]]) < 0.01
+        @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01
+        @test norm(ts1[c1[3]]-ts2[c2[3]]) < 0.01
+        @test norm(ts1[c1[end]]-ts2[c2[end]]) < 0.01
+
+
+        # plot( ( layer(x=map(p->p[1], t), y=map(p->p[2], t), Geom.point, Theme(default_color=c)) for (t,c) in zip((ts1, ts2), ("red", "blue"))) ...)
     end
-    df2
-end
 
-if align_example
-    using Cairo
-    using Fontconfig 
-    using Gadfly
-    println("Starting")
-    const align_slow = false
-    n, nθ, nrings = 10000, 180, 8
-    # Construct a randomized "particle position" dataset
-    df = DataFrame(x=100.0 .* (0.5 .- rand(n)), y=100.0 .* (0.5 .- rand(n)), s=[1 for _ in 1:n ])
-    # Construct a localized subset that is offset and rotate 
-    center, θ = 50.0 .* (0.5 .- rand(2)), 2π * rand()
-    df2 = subsample(df, center, θ, (5.0, 5.0))
+    @testset "rough_align (0xABCDEF)" begin
+        rnd = MersenneTwister(0xABCDEF)
+        npts = 2000
+        bounds = Rect2((-10.0, -10.0), (20.0,20.0))
+        xy = NeXLParticle.generate_ground_truth(rnd, bounds, npts)
+        ps1 = NeXLParticle.measure_particles(rnd, xy, SA[2.0,4.0], deg2rad(230.0), 0.99, 0.003)
+        ps2 = NeXLParticle.measure_particles(rnd, xy, SA[-2.0,-6.0], deg2rad(23.0), 0.99, 0.003)
 
-    ai = rough_align(df, df2, :x, :y, nrings, nθ)
-    ai = @time rough_align(df, df2, :x, :y, nrings, nθ)
+        (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
 
-    print("Fast: ")
-    println([ score(ai, bb) for bb in findbest(ai) ])
-    println("$center vs. $([ offset(ai, bb) for bb in findbest(ai) ])")
-    println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai, bb)) for bb in findbest(ai) ])")
+        @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
+        @test isapprox(ct1.translation, [-1.038503062049208, -5.350538616445855], atol=1.0e-8)
+        @test isapprox(ct2.linear, [-0.8909411399146158 0.45411880076434297; -0.45411880076434297 -0.8909411399146158], atol=1.0e-8)
+        @test isapprox(ct2.translation, [1.904393007377276, -7.6051699023220465], atol=1.0e-8 )
+        @test isapprox(RotMatrix{2}(deg2rad(230.0-23.0)), ct2.linear, atol = 0.001)
 
-    spy(ai.scores) |> PNG(joindir(homedir(),"Desktop","example.png"), 10inch, 8inch)
-    if align_slow
-        ai2 = @time rough_align_slow(df, df2, :x, :y, nrings, nθ)
-        print("Slow: ")
-        println([ score(ai2, bb) for bb in findbest(ai2) ])
-        println("$center vs. $([ coordinate(ai2, bb) for bb in findbest(ai2) ])")
-        println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai2, bb)) for bb in findbest(ai2) ])")
-        spy(ai.scores) |> PNG(joinpath(homedir(),"Desktop","example_slow.png"), 10inch, 8inch)
+
+        ts1, ts2 = ct1.(ps1), ct2.(ps2)
+        c1, c2 = correspondences(ts1, ts2; tol=0.01)
+        @test norm(ts1[c1[1]]-ts2[c2[1]]) < 0.01
+        @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01
+        @test norm(ts1[c1[3]]-ts2[c2[3]]) < 0.01
+        @test norm(ts1[c1[end]]-ts2[c2[end]]) < 0.01
+
+        # plot( ( layer(x=map(p->p[1], t), y=map(p->p[2], t), Geom.point, Theme(default_color=c)) for (t,c) in zip((ts1, ts2), ("red", "blue"))) ...)
+    end
+
+    @testset "rough_align (0xF156F00D)" begin
+        rnd = MersenneTwister(0xF156F00D)
+        npts = 100
+        bounds = Rect2((-10.0, -10.0), (20.0,20.0))
+        xy = NeXLParticle.generate_ground_truth(rnd, bounds, npts)
+        ps1 = NeXLParticle.measure_particles(rnd, xy, SA[2.0,4.0], deg2rad(230.0), 0.89, 0.003)
+        ps2 = NeXLParticle.measure_particles(rnd, xy, SA[-2.0,-6.0], deg2rad(23.0), 0.94, 0.003)
+
+        (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
+
+        @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
+        @test isapprox(ct1.translation, [-2.664472483448743, -4.768618139930582], atol=1.0e-8)
+        @test isapprox(ct2.linear, [-0.8910676616790995 0.45387049067960117; -0.45387049067960117 -0.8910676616790995], atol=1.0e-8)
+        @test isapprox(ct2.translation, [0.2768702232176849, -7.022161641453611], atol=1.0e-8 )
+        @test isapprox(RotMatrix{2}(deg2rad(230.0-23.0)), ct2.linear, atol = 0.001)
+
+        ts1, ts2 = ct1.(ps1), ct2.(ps2)
+        c1, c2 = correspondences(ts1, ts2; tol=0.01)
+        @test norm(ts1[c1[1]]-ts2[c2[1]]) < 0.01
+        @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01
+        @test norm(ts1[c1[3]]-ts2[c2[3]]) < 0.01
+        @test norm(ts1[c1[end]]-ts2[c2[end]]) < 0.01
+
+        # plot( ( layer(x=map(p->p[1], t), y=map(p->p[2], t), Geom.point, Theme(default_color=c)) for (t,c) in zip((ts1, ts2), ("red", "blue"))) ...)
+    end
+
+    @testset "rough_align (0x7357)" begin
+        rnd = MersenneTwister(0x7357)
+        npts = 10000
+        bounds = Rect2((-5.0, -5.0), (10.0,10.0))
+        xy = NeXLParticle.generate_ground_truth(rnd, bounds, npts)
+        ps1 = NeXLParticle.measure_particles(rnd, xy, SA[2.0,4.0], deg2rad(113.0), 0.7, 0.001)
+        ps2 = NeXLParticle.measure_particles(rnd, xy, SA[-2.0,-6.0], deg2rad(213.0), 0.65, 0.001)
+
+        (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
+
+        @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
+        @test isapprox(ct1.translation, [-3.570780539551327, -6.321500211234103], atol=1.0e-8)
+        @test isapprox(ct2.linear, [-0.1735628929293961 0.9848227872048753; -0.9848227872048753 -0.1735628929293961], atol=1.0e-8)
+        @test isapprox(ct2.translation, [3.990875748179417, -5.3317038874444185], atol=1.0e-8 )
+        @test isapprox(RotMatrix{2}(deg2rad(113.0-213.0)), ct2.linear, atol = 0.001)
+        
+
+        ts1, ts2 = ct1.(ps1), ct2.(ps2)
+        c1, c2 = correspondences(ts1, ts2; tol=0.01)
+        @test length(c1) == 4667 # approx 10000*0.7*0.67
+        @test norm(ts1[c1[1]]-ts2[c2[1]]) < 0.01
+        @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01
+        @test norm(ts1[c1[3]]-ts2[c2[3]]) < 0.01
+        @test norm(ts1[c1[end]]-ts2[c2[end]]) < 0.01
+
+        #plot( ( layer(x=map(p->p[1], t), y=map(p->p[2], t), Geom.point, Theme(default_color=c)) for (t,c) in zip((ts1, ts2), ("red", "blue"))) ...)
     end
 end
-
-if align_example2
-    using Cairo
-    using Fontconfig 
-    using Gadfly
-    println("Starting")
-    const align_slow = false
-    n, nθ, nrings = 10000, 180, 8
-    # Construct a randomized "particle position" dataset
-    df = DataFrame(x=100.0 .* (0.5 .- rand(n)), y=100.0 .* (0.5 .- rand(n)), s=[1 for _ in 1:n ])
-    # Construct a localized subset that is offset and rotate 
-    center, θ = 50.0 .* (0.5 .- rand(2)), 2π * rand()
-    df2 = subsample(df, center, θ, (35.0, 35.0))
-
-    ai = rough_align(df, df2, :x, :y, nrings, nθ)
-    ai = @time rough_align(df, df2, :x, :y, nrings, nθ)
-
-    print("Fast: ")
-    println([ score(ai, bb) for bb in findbest(ai) ])
-    println("$center vs. $([ offset(ai, bb) for bb in findbest(ai) ])")
-    println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai, bb)) for bb in findbest(ai) ])")
-
-    spy(ai.scores) |> PNG(joinpath(homedir(),"Desktop","example.png"), 10inch, 8inch)
-    plot(ai, df, df2) |> SVG(joinpath(homedir(), "Desktop", "overlaid.svg"))
-    if align_slow
-        ai2 = @time rough_align_slow(df, df2, :x, :y, nrings, nθ)
-        print("Slow: ")
-        println([ score(ai2, bb) for bb in findbest(ai2) ])
-        println("$center vs. $([ coordinate(ai2, bb) for bb in findbest(ai2) ])")
-        println("$(rad2deg(θ)) vs. $([ rad2deg(angle(ai2, bb)) for bb in findbest(ai2) ])")
-        spy(ai.scores) |> PNG(joinpath(homedir(),"Desktop","example_slow.png"), 10inch, 8inch)
-    end
-end
-
-if hist_test
-    using Gadfly, CSV
-    n = 10000
-    nθ, nrings = 32, 8
-    res = DataFrame(Iteration=Int[], Index=Int[], Score=Float64[], Ratio=Float64[], xOff=Float64[], yOff=Float64[], θOff= Float64[])
-    pd = DataFrame(xOff=Float64[], yOff=Float64[], θOff=Float64[], score=Float64[])
-    for i in 1:100
-        # Construct a randomized "particle position" dataset
-        df = DataFrame(x=100.0 .* (0.5 .- rand(n)), y=100.0 .* (0.5 .- rand(n)), s=[1 for _ in 1:n ])
-        # Construct a localized subset that is offset and rotate 
-        center, θ = 50.0 .* (0.5 .- rand(2)), 2π * rand()
-        df2 = subsample(df, center, θ, (5.0, 5.0))
-
-        ai = @time rough_align(df, df2, :x, :y, nrings, nθ)
-        b = findbest(ai)
-        for j in eachindex(b)
-            off = offset(ai, b[j])
-            push!(res, ( i, j, score(ai,b[j]), score(ai,b[j])/score(ai,b[1]), off[1]-center[1], off[2]-center[2], nθ*(modf((θ - angle(ai,b[j]) + 5π)/(2π))[1]-0.5)))
-        end
-        off = offset(ai, b[1])
-        push!(pd, (off[1]-center[1], off[2]-center[2], nθ*(modf((θ - angle(ai,b[1]) + 5π)/(2π))[1]-0.5), score(ai,b[1])))
-    end
-    plot(
-        layer(x=filter(x->abs(x)<1.0, pd[:,:xOff]), Geom.histogram(bincount=10), Theme(default_color="blue")),
-        layer(x=filter(y->abs(y)<1.0, pd[:,:yOff]), Geom.histogram(bincount=10), Theme(default_color="red"))
-    ) |> SVG(joinpath(homedir(),"Desktop","xy.svg"))
-    plot(x=filter(x->abs(x)<1.0, pd[:,:θOff]), Geom.histogram(bincount=10), Theme(default_color="green")) |> SVG(joinpath(homedir(),"Desktop","off.svg"))
-    plot(x=pd[:,:score], Geom.histogram(bincount=10), Theme(default_color="green")) |> SVG(joinpath(homedir(),"Desktop","score.svg"))
-    CSV.write(joinpath(homedir(),"Desktop","align_hist.csv"), res)
-end
-

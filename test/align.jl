@@ -4,7 +4,7 @@ using StaticArrays
 using GeometryBasics
 using Random
 using LinearAlgebra
-using Rotation
+using Rotations
 #using Gadfly
 
 @testset "rough_align" begin
@@ -29,7 +29,6 @@ using Rotation
         @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01
         @test norm(ts1[c1[3]]-ts2[c2[3]]) < 0.01
         @test norm(ts1[c1[end]]-ts2[c2[end]]) < 0.01
-
 
         # plot( ( layer(x=map(p->p[1], t), y=map(p->p[2], t), Geom.point, Theme(default_color=c)) for (t,c) in zip((ts1, ts2), ("red", "blue"))) ...)
     end

@@ -107,7 +107,7 @@ function rough_align(
     # Now perform a second filter.  Look at the center-of-gravity for the matching triplets.
     # Build a list of pairs for which the distance between the cog for triplet1(i) and triplet2(i) are similar.
     res = Tuple{Int,Int,Float64,Float64}[] # index into tripletX(), index into tripletX(), difference in separation, angle between
-    clast = min(length(correspondences), 40)
+    clast = min(length(correspondences), 100)
     for ii in 1:clast, jj in ii+1:clast
         dc1, dc2 = cog(triplet1(ii))-cog(triplet1(jj)), cog(triplet2(ii))-cog(triplet2(jj))
         ndc1, ndc2 = norm(dc1), norm(dc2)
@@ -132,6 +132,7 @@ function rough_align(
     θi = findmax(h.weights)[2] # most probably rotation angle
     # Find the indices of corresponding pairs of groups close to this angle
     idxs = filter(i->between_angles(res[i][4], bins[θi]-π/180, bins[θi+1]+π/180), eachindex(res))
+    @assert length(idxs) > 0 "θi = $(findmax(h.weights))"
     good = res[idxs]
     θ = mean(r->r[4], good)
     goodidxs = unique(mapreduce(g->[ g[1], g[2] ], append!, good)) # g[1] & g[2] are indices of corresponding particle groups

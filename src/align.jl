@@ -48,7 +48,7 @@ function measure_particles(rnd::AbstractRNG, pd::Vector{<:SVector{2}}, offset::S
 end
 
 """
-    rough_align(ps1::AbstractVector{StaticVector{2, T}}, ps2::AbstractVector{StaticVector{2, T}}; nnsize=3, tol=0.001, corrtol=10.0) where { T<: AbstractFloat }
+    rough_align(ps1::AbstractVector{StaticVector{2, T}}, ps2::AbstractVector{StaticVector{2, T}}; groupsize=3, tol=0.001, corrtol=10.0) where { T<: AbstractFloat }
 
 Perform a rough alignment of two sets of measured particle coordinates.  The assumption is that the coordinates come from two difference measurements
 of the same particle data set which may vary in sample orientation and offset.  The task is to find the affine transformations that
@@ -57,13 +57,13 @@ will transform ps1 and ps2 to overlap at the origin.
 The particle data sets should include "most" of the same particles or at least a significant overlapping region.  The distance metric should be the 
 same in both x & y and also between data sets.
 
-The algorithm uses a nearest neighbor method to identify triplets (or nnsize-lets) of particles.  The triplets are matched from `ps1` with the closest
+The algorithm uses a nearest neighbor method to identify triplets (or groupsize-lets) of particles.  The triplets are matched from `ps1` with the closest
 match in `ps2`.  Then the distances between matched triplets is compared to identify triplets that appear similar in particle spacing and in spacing
 between center-of-gravities.  These pairs are then used to compute the rotation angle and the center of gravity for each data set.
 
-  * nnsize is the number of nearest neighbors to consider (nominally 2)
-  * tol is the similarity tolerance for separation edge length (<<1.0)
-  * corrtol is the correspondance metric multiplier (>1.0)
+  * `groupsize` is the number of nearest neighbors to consider (nominally 3)
+  * `tol` is the similarity tolerance for separation edge length (<<1.0). `tol` should be approximately the uncertainty in each
+  component of the measured positions.
 
 Example:
 
@@ -76,20 +76,20 @@ Example:
 function rough_align(
     ps1::AbstractVector{<:StaticVector{2, T}}, #
     ps2::AbstractVector{<:StaticVector{2, T}}; #
-    nnsize=3, #
+    groupsize=3, #
     tol=0.001, #
 )::NTuple{2, AffineMap} where { T <: AbstractFloat }
-    # For each data set find the (nnsize-1) nearest neighbors for each particle
-    idx1, _ = knn(KDTree(ps1), ps1, nnsize, true)
-    idx2, _ = knn(KDTree(ps2), ps2, nnsize, true)
+    # For each data set find the (groupsize-1) nearest neighbors for each particle
+    idx1, _ = knn(KDTree(ps1), ps1, groupsize, true)
+    idx2, _ = knn(KDTree(ps2), ps2, groupsize, true)
     # Compute the separations between all pairs of nearest neighbors
     function compute_separations(idxs, pts)
         # add a sign to indicate clockwise vs counter-clockwise
         signednorm(a, b)::T = (a[1]*b[2] > a[2]*b[1] ? -one(T) : one(T)) * norm(b)
         map(idxs) do idx
-            # DOF = nnsize particles times 2 dimensions - (rotate, x_off, y_off)
+            # DOF = groupsize particles times 2 dimensions - (rotate, x_off, y_off)
             dnn12 = pts[idx[1]] - pts[idx[2]]
-            SA[ collect(signednorm(dnn12, pts[idx[i]] - pts[idx[j]]) for i in Base.OneTo(nnsize) for j in i+1:nnsize)... ]
+            SA[ collect(signednorm(dnn12, pts[idx[i]] - pts[idx[j]]) for i in Base.OneTo(groupsize) for j in i+1:groupsize)... ]
         end # separations 
     end
     # Transform the particle data into "nearest neighbor separation space"

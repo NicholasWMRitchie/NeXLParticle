@@ -18,9 +18,9 @@ using Rotations
 
         (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
         @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
-        @test isapprox(ct1.translation, [9.334994200384267, -5.198016372692697], atol=1.0e-8)
-        @test isapprox(ct2.linear, [-0.9339031207175221 -0.35752616843256846; 0.35752616843256846 -0.9339031207175221], atol=1.0e-8)
-        @test isapprox(ct2.translation, [-2.8904928250171156, -0.4162956186599809], atol=1.0e-8 )
+        @test isapprox(ct1.translation, [9.463509135855892, -5.084006487177425], atol=1.0e-8)
+        @test isapprox(ct2.linear, [-0.933518161752927 -0.35853011265085666; 0.35853011265085666 -0.933518161752927], atol=1.0e-8)
+        @test isapprox(ct2.translation, [-2.7619203122160743, -0.2997257033588756], atol=1.0e-8 )
         @test isapprox(RotMatrix{2}(deg2rad(12.0-213.0)), ct2.linear, atol = 0.002)
 
         ts1, ts2 = ct1.(ps1), ct2.(ps2)
@@ -44,9 +44,9 @@ using Rotations
         (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
 
         @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
-        @test isapprox(ct1.translation, [-1.038503062049208, -5.350538616445855], atol=1.0e-8)
-        @test isapprox(ct2.linear, [-0.8909411399146158 0.45411880076434297; -0.45411880076434297 -0.8909411399146158], atol=1.0e-8)
-        @test isapprox(ct2.translation, [1.904393007377276, -7.6051699023220465], atol=1.0e-8 )
+        @test isapprox(ct1.translation, [-2.439381678523621, -4.83348719078295], atol=1.0e-8)
+        @test isapprox(ct2.linear, [-0.8909816833778803 0.4540392492782079; -0.4540392492782079 -0.8909816833778803], atol=1.0e-8)
+        @test isapprox(ct2.translation, [0.5030208959078659, -7.088192398044117], atol=1.0e-8 )
         @test isapprox(RotMatrix{2}(deg2rad(230.0-23.0)), ct2.linear, atol = 0.001)
 
 
@@ -71,9 +71,9 @@ using Rotations
         (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
 
         @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
-        @test isapprox(ct1.translation, [-2.664472483448743, -4.768618139930582], atol=1.0e-8)
-        @test isapprox(ct2.linear, [-0.8910676616790995 0.45387049067960117; -0.45387049067960117 -0.8910676616790995], atol=1.0e-8)
-        @test isapprox(ct2.translation, [0.2768702232176849, -7.022161641453611], atol=1.0e-8 )
+        @test isapprox(ct1.translation, [-3.600666188303255, -3.823165241126716], atol=1.0e-8)
+        @test isapprox(ct2.linear, [-0.8910316678635093 0.4539411491199855; -0.4539411491199855 -0.8910316678635093], atol=1.0e-8)
+        @test isapprox(ct2.translation, [-0.6588973878728955, -6.076703669619125], atol=1.0e-8 )
         @test isapprox(RotMatrix{2}(deg2rad(230.0-23.0)), ct2.linear, atol = 0.001)
 
         ts1, ts2 = ct1.(ps1), ct2.(ps2)
@@ -97,15 +97,15 @@ using Rotations
         (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
 
         @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
-        @test isapprox(ct1.translation, [-3.570780539551327, -6.321500211234103], atol=1.0e-8)
-        @test isapprox(ct2.linear, [-0.1735628929293961 0.9848227872048753; -0.9848227872048753 -0.1735628929293961], atol=1.0e-8)
-        @test isapprox(ct2.translation, [3.990875748179417, -5.3317038874444185], atol=1.0e-8 )
+        @test isapprox(ct1.translation, [-1.9797624240598497, -5.2545418722493595], atol=1.0e-8)
+        @test isapprox(ct2.linear, [-0.17353087223345756 0.9848284299216262; -0.9848284299216262 -0.17353087223345756], atol=1.0e-8)
+        @test isapprox(ct2.translation, [5.582172374918754, -4.264693091414748], atol=1.0e-8 )
         @test isapprox(RotMatrix{2}(deg2rad(113.0-213.0)), ct2.linear, atol = 0.001)
         
 
         ts1, ts2 = ct1.(ps1), ct2.(ps2)
         c1, c2 = correspondences(ts1, ts2; tol=0.01)
-        @test length(c1) == 4667 # approx 10000*0.7*0.67
+        @test length(c1) == 4668 # approx 10000*0.7*0.67
         @test norm(ts1[c1[1]]-ts2[c2[1]]) < 0.01
         @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01
         @test norm(ts1[c1[3]]-ts2[c2[3]]) < 0.01

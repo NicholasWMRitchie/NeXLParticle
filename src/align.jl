@@ -10,6 +10,7 @@ using LinearAlgebra
 using StatsBase
 using Distributions
 using CoordinateTransformations
+using LsqFit
 
 """
 generate_ground_truth(rnd::Random, bounds::Rect2, npart::Integer, inside::Function=p->p in bounds)
@@ -43,7 +44,7 @@ function measure_particles(rnd::AbstractRNG, pd::Vector{<:SVector{2}}, offset::S
     rot = RotMatrix{2}(θ)
     n = Distributions.Normal(0.0, eps)
     return shuffle!(rnd, map(filter(f->rand(rnd)<frac, pd)) do part
-        rot*part + offset + rand(rnd, n, 2)
+        rot * part + offset + rand(rnd, n, 2)
     end)
 end
 
@@ -141,8 +142,8 @@ function rough_align(
     cog2 = cog(map(i->cog(triplet2(i)), goodidxs))
     # Convert this into two affine transformations.
     return ( 
-        LinearMap(one(RotMatrix{2, Float64}))∘inv(Translation(cog1)),
-        LinearMap(RotMatrix{2}(θ))∘inv(Translation(cog2))
+        LinearMap(Angle2d(zero(T)))∘inv(Translation(cog1)),
+        LinearMap(Angle2d(T(θ)))∘inv(Translation(cog2))
     )
 end
 
@@ -166,15 +167,7 @@ function correspondences(ps1::AbstractVector{<:StaticVector{2, T}}, ps2::Abstrac
     return m2, m1
 end
 
-"""
-    refined_alignment(ps1::AbstractVector{<:StaticVector{2, T}}, ps2::AbstractVector{<:StaticVector{2, T}}; tol=0.01) where {T <: AbstractFloat}1
-
-Takes two rough aligned data sets `ps1` and `ps2`.  It finds the corresponding particles in each and then uses these
-to refine the positions of `ps2` through rotation and translation to best match `ps1`.
-
-Returns a transformed subset of `ps2` that well matches `ps1`.
-"""
-function refined_alignment(ps1::AbstractVector{<:StaticVector{2, T}}, ps2::AbstractVector{<:StaticVector{2, T}}; tol=0.01) where {T <: AbstractFloat}
+function orthogonal_procrustes_alignment(ps1::AbstractVector{<:StaticVector{2, T}}, ps2::AbstractVector{<:StaticVector{2, T}}; tol=0.01) where {T <: AbstractFloat}
     c1, c2 = correspondences(ps1, ps2; tol=tol, invert=false)
     cps1, cps2 = ps1[c1], ps2[c2]
     com1, com2 = mean(cps1), mean(cps2)
@@ -185,4 +178,59 @@ function refined_alignment(ps1::AbstractVector{<:StaticVector{2, T}}, ps2::Abstr
     Ω = f.U * f.Vt
     # Now translate and rotated the reordered data towards `pts1`
     return cps1, Translation(com1).(Ω * cpst2)
+end
+
+
+"""
+    refined_alignment(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}) where { T <: AbstractFloat }
+
+Uses a non-linear algorithm to refine a rough alignment by adjusting the rotation and offset to produce the smallest
+mean-square distance between particles in `ps1` and `ps2`.  Return the `AffineMap` that best transforms `ps2` to match
+`ps1`.
+
+The inputs `ps1` and `ps2` must correspond index-by-index with each other. Meaning they represent the exact same particles
+in the same order.  This is where the `correspondences(...)` function comes in handy.
+
+Example:
+    
+    julia> ct1, ct2 = rough_align(ps1, ps2)                  # Get the alignment transforms
+    julia  rs1, rs2 = ct1.(ps1),ct2.(ps2)                    # Rough align the data sets
+    julia> ci1, ci2 = correspondences(rs1, rs2)              # Identify corresponding rough-aligned particles by index
+    julia> cs1, cs2 = rs1[ci1], rs2[ci2]                     # Extract these particles
+    julia> n(ds1, ds2) = sum(x->x^2, norm.(ds1 .- ds2))       # Metric function
+    julia> n(rs1[ci1], rs2[ci2])                             # Pre-Error measure
+    julia> ct3 = refined_alignment(cs1, cs2)                 # Get the refined alignment transform
+    julia> n(rs1, ct3.(rs2))                                 # Post-Error measure
+    julia> n(rs1, (ct3∘ct2).(cs2));
+    julia> aps1, aps2 = ct1.(ps1), (ct3∘ct2).(ps2)           # Transform all points
+"""
+function refined_alignment(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}) where { T <: AbstractFloat }
+    @assert length(ps1) == length(ps2)
+    function f(idx, param)
+        r, off = RotMatrix{2}(param[1]), param[2:3]
+        map(idx) do i
+            sum(x->x^2, r*(ps2[i] + off) - ps1[i])
+        end
+    end
+    fit = curve_fit(f, eachindex(ps2), zeros(T, length(ps2)), [0.0, 0.0, 0.0]; inplace=false)
+    return LinearMap(Angle2d(fit.param[1])) ∘ Translation(fit.param[2:3])
+end
+
+"""
+    align(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}; tol=0.001, finealign=true)  where { T <: AbstractFloat }
+
+Perform a `rough_align(...)` followed by a "refined_alignment(...)" on `ps1` and `ps2`.  Return the `AffineMap`
+transformations `(ct1, ct2) such that `ct1.(ps1)` and `ct2.(ps2)` are registered.  If `finealign=true` then a 
+second-stage non-linear optimization of corresponding points is performed.
+"""
+function align(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}; tol=0.001, finealign=true)  where { T <: AbstractFloat }
+    ct1, ct2 = rough_align(ps1, ps2; tol=tol)
+    if finealign 
+        rs1, rs2 = ct1.(ps1), ct2.(ps2)
+        ci1, ci2 = correspondences(rs1, rs2)
+        cs1, cs2 = rs1[ci1], rs2[ci2]
+        ct3 = refined_alignment(cs1, cs2)
+        ct2 = ct3∘ct2
+    end
+    return (ct1, ct2)
 end

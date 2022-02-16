@@ -41,7 +41,7 @@ using Rotations
         ps1 = NeXLParticle.measure_particles(rnd, xy, SA[2.0,4.0], deg2rad(230.0), 0.99, 0.003)
         ps2 = NeXLParticle.measure_particles(rnd, xy, SA[-2.0,-6.0], deg2rad(23.0), 0.99, 0.003)
 
-        (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
+        (ct1, ct2) = NeXLParticle.rough_align(ps1, ps2, tol=0.001)
 
         @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
         @test isapprox(ct1.translation, [-2.439381678523621, -4.83348719078295], atol=1.0e-8)
@@ -51,7 +51,7 @@ using Rotations
 
 
         ts1, ts2 = ct1.(ps1), ct2.(ps2)
-        c1, c2 = correspondences(ts1, ts2; tol=0.01)
+        c1, c2 = NeXLParticle.correspondences(ts1, ts2; tol=0.01)
         @test norm(ts1[c1[1]]-ts2[c2[1]]) < 0.01
         @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01
         @test norm(ts1[c1[3]]-ts2[c2[3]]) < 0.01
@@ -68,7 +68,7 @@ using Rotations
         ps1 = NeXLParticle.measure_particles(rnd, xy, SA[2.0,4.0], deg2rad(230.0), 0.89, 0.003)
         ps2 = NeXLParticle.measure_particles(rnd, xy, SA[-2.0,-6.0], deg2rad(23.0), 0.94, 0.003)
 
-        (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
+        (ct1, ct2) = NeXLParticle.rough_align(ps1, ps2, tol=0.001)
 
         @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
         @test isapprox(ct1.translation, [-3.600666188303255, -3.823165241126716], atol=1.0e-8)
@@ -77,7 +77,7 @@ using Rotations
         @test isapprox(RotMatrix{2}(deg2rad(230.0-23.0)), ct2.linear, atol = 0.001)
 
         ts1, ts2 = ct1.(ps1), ct2.(ps2)
-        c1, c2 = correspondences(ts1, ts2; tol=0.01)
+        c1, c2 = NeXLParticle.correspondences(ts1, ts2; tol=0.01)
         @test norm(ts1[c1[1]]-ts2[c2[1]]) < 0.01
         @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01
         @test norm(ts1[c1[3]]-ts2[c2[3]]) < 0.01
@@ -94,7 +94,7 @@ using Rotations
         ps1 = NeXLParticle.measure_particles(rnd, xy, SA[2.0,4.0], deg2rad(113.0), 0.7, 0.001)
         ps2 = NeXLParticle.measure_particles(rnd, xy, SA[-2.0,-6.0], deg2rad(213.0), 0.65, 0.001)
 
-        (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
+        (ct1, ct2) = NeXLParticle.rough_align(ps1, ps2, tol=0.001)
 
         @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
         @test isapprox(ct1.translation, [-1.9797624240598497, -5.2545418722493595], atol=1.0e-8)
@@ -104,7 +104,7 @@ using Rotations
         
 
         ts1, ts2 = ct1.(ps1), ct2.(ps2)
-        c1, c2 = correspondences(ts1, ts2; tol=0.01)
+        c1, c2 = NeXLParticle.correspondences(ts1, ts2; tol=0.01)
         @test length(c1) == 4668 # approx 10000*0.7*0.67
         @test norm(ts1[c1[1]]-ts2[c2[1]]) < 0.01
         @test norm(ts1[c1[2]]-ts2[c2[2]]) < 0.01

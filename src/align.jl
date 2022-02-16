@@ -222,6 +222,14 @@ end
 Perform a `rough_align(...)` followed by a "refined_alignment(...)" on `ps1` and `ps2`.  Return the `AffineMap`
 transformations `(ct1, ct2) such that `ct1.(ps1)` and `ct2.(ps2)` are registered.  If `finealign=true` then a 
 second-stage non-linear optimization of corresponding points is performed.
+
+Example:
+
+    julia> (ct1, ct2) = align(ps1, ps2)
+    julia> ct1.(ps1) # Translates ps1 towards the origin (no rotation)
+    julia> ct2.(ps2) # Translates ps2 towards the origin and rotates it to overlay `ct1.(ps1)`
+    julia> (inv(ct1)∘ct2).(ps2) # Transforms ps2 to overlay ps1
+    julia> (inv(ct2)∘ct1).(ps1) # Transforms ps1 to overlay ps2
 """
 function align(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}; tol=0.001, finealign=true)  where { T <: AbstractFloat }
     ct1, ct2 = rough_align(ps1, ps2; tol=tol)

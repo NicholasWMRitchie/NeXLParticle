@@ -660,3 +660,18 @@ function translate(zep::Zeppelin, am::AbstractAffineMap)::Zeppelin
     end
     return res
 end
+
+"""
+    align(zep1::Zeppelin, zep2::Zeppelin; tol=0.001, finealign=true)
+
+Aligns `zep2` to overlay with `zep1`.   `zep1` and `zep2` are assumed to be particle data sets collected
+from the same sample but that may translated and rotated from one-another.   Not all the particles need to
+correspond between `zep1` and `zep2` but many must.
+The function returns a copy of `zep2` transformed to overlay `zep1`.
+"""
+function align(zep1::Zeppelin, zep2::Zeppelin; tol=0.001, finealign=true)
+    ps1 = map(xy-> SA[ xy... ], zip(zep1[:,XABS], zep1[:,YABS]))
+    ps2 = map(xy-> SA[ xy... ], zip(zep2[:,XABS], zep2[:,YABS]))
+    ct1, ct2 = align(ps1, ps2, tol=tol, finealign=finealign)
+    return translate(zep2, inv(ct1)∘ct2)
+end

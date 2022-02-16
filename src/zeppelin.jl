@@ -88,7 +88,8 @@ function Base.show(io::IO, zc::ZepClass)
     end
 end
 Base.:(==)(zc1::ZepClass, zc2::ZepClass) = zc1.index==zc2.index
-
+Base.:(==)(zc1::ZepClass, zc2::AbstractString) = repr(zc1)==zc2
+Base.:(==)(zc1::AbstractString, zc2::ZepClass) = zc1==repr(zc2)
 
 Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.data), copy(z.classnames))
 
@@ -633,9 +634,11 @@ with only the rows for which the function evaluated true.
 Example:
 
     gsr = filter(row->startswith( String(row["CLASS"]), "GSR."), zep)
-
 """
-Base.filter(filt::Function, zep::Zeppelin) = filter(r->filt(zep.data[r,:]), eachparticle(zep))
+function Base.filter(filt::Function, zep::Zeppelin)::Zeppelin 
+    zd = filter(filt, zep.data; view=false)
+    return Zeppelin(zep.headerfile, copy(zep.header), zd, copy(zep.classnames))
+end
 
 const MORPH_COLS = ( "NUMBER", "XABS", "YABS", "DAVG", "DMIN", "DMAX", "DPERP", "PERIMETER", "ORIENTATION", "AREA" )
 const CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )
@@ -670,8 +673,26 @@ correspond between `zep1` and `zep2` but many must.
 The function returns a copy of `zep2` transformed to overlay `zep1`.
 """
 function align(zep1::Zeppelin, zep2::Zeppelin; tol=0.001, finealign=true)
-    ps1 = map(xy-> SA[ xy... ], zip(zep1[:,XABS], zep1[:,YABS]))
-    ps2 = map(xy-> SA[ xy... ], zip(zep2[:,XABS], zep2[:,YABS]))
+    ps1 = map(xy-> SA[ xy... ], zip(zep1[:, :XABS], zep1[:,:YABS]))
+    ps2 = map(xy-> SA[ xy... ], zip(zep2[:, :XABS], zep2[:,:YABS]))
     ct1, ct2 = align(ps1, ps2, tol=tol, finealign=finealign)
     return translate(zep2, inv(ct1)∘ct2)
+end
+"""
+    correspondences(zep1::Zeppelin, zep2::Zeppelin; tol=0.01, invert=false)
+
+Identify particle correspondences between `zep1` and `zep2`.  Returns two new
+`Zeppelin` data sets `zc1` and `zc2` in which corresponding particles are matched 
+by row index. So `zc1[1,:]` is likely to refer to the same particle as `zc2[1, :]`.
+Unless invert is chosen, in which case only the particles with no corresponding 
+partners are returned.
+"""
+function correspondences(zep1::Zeppelin, zep2::Zeppelin; tol=0.01, invert=false)
+    ps1 = map(xy-> SA[ xy... ], zip(zep1[:, :XABS], zep1[:,:YABS]))
+    ps2 = map(xy-> SA[ xy... ], zip(zep2[:, :XABS], zep2[:,:YABS]))
+    c1, c2 = correspondences(ps1, ps2, tol=tol, invert=invert)
+    return ( 
+        Zeppelin(zep1.headerfile, copy(zep1.header), zep1.data[c1, :], copy(zep1.classnames)),
+        Zeppelin(zep2.headerfile, copy(zep2.header), zep2.data[c2, :], copy(zep2.classnames))
+    )
 end

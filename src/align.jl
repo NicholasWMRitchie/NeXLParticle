@@ -211,13 +211,25 @@ function refined_alignment(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:Stati
         foreach(i->res[2i-1:2i] .= ps[i], eachindex(ps))
         return res
     end
+    # Compute the function
     function f(ps, param)
         r, off = RotMatrix{2}(param[1]), param[2:3]
         res = Array{T}(undef, length(ps))
         foreach(i -> res[i:i+1] .= r*((@view ps[i:i+1]) + off), 1:2:length(ps))
         return res
     end
-    fit = curve_fit(f, flatten(ps2), flatten(ps1), [0.0, 0.0, 0.0]; inplace=false)
+    # Compute the Jacobian
+    function jac(ps, param)
+        A, B, C, D = cos(param[1]), sin(param[1]), param[2], param[3]
+        res = Array{T}(undef, length(ps), length(param))
+        for i in 1:2:length(ps)
+            x, y = ps[i], ps[i+1]
+            res[i, :] .= ( -B*(x+C)-A*(y+D), A, -B )
+            res[i+1, :] .= ( -B*(y+D)+(x+C)*A, B, A)
+        end
+        return res
+    end
+    fit = curve_fit(f, jac, flatten(ps2), flatten(ps1), [0.0, 0.0, 0.0]; inplace=false)
     return LinearMap(Angle2d(fit.param[1])) ∘ Translation(fit.param[2:3])
 end
 

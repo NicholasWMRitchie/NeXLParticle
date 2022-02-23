@@ -206,15 +206,21 @@ Example:
 """
 function refined_alignment(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}) where { T <: AbstractFloat }
     @assert length(ps1) == length(ps2)
-    function f(idx, param)
-        r, off = RotMatrix{2}(param[1]), param[2:3]
-        map(idx) do i
-            sum(x->x^2, r*(ps2[i] + off) - ps1[i])
-        end
+    function flatten(ps)
+        res = Array{T}(undef, 2*length(ps))
+        foreach(i->res[2i-1:2i] .= ps[i], eachindex(ps))
+        return res
     end
-    fit = curve_fit(f, eachindex(ps2), zeros(T, length(ps2)), [0.0, 0.0, 0.0]; inplace=false)
+    function f(ps, param)
+        r, off = RotMatrix{2}(param[1]), param[2:3]
+        res = Array{T}(undef, length(ps))
+        foreach(i -> res[i:i+1] .= r*((@view ps[i:i+1]) + off), 1:2:length(ps))
+        return res
+    end
+    fit = curve_fit(f, flatten(ps2), flatten(ps1), [0.0, 0.0, 0.0]; inplace=false)
     return LinearMap(Angle2d(fit.param[1])) ∘ Translation(fit.param[2:3])
 end
+
 
 """
     align(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}; tol=0.001, finealign=true)  where { T <: AbstractFloat }

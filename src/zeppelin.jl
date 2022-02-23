@@ -90,6 +90,10 @@ end
 Base.:(==)(zc1::ZepClass, zc2::ZepClass) = zc1.index==zc2.index
 Base.:(==)(zc1::ZepClass, zc2::AbstractString) = repr(zc1)==zc2
 Base.:(==)(zc1::AbstractString, zc2::ZepClass) = zc1==repr(zc2)
+Base.String(zc::ZepClass) = repr(zc)
+
+Base.get(z::Zeppelin, key::String, def=missing) = get(z.header, uppercase(key), def)
+Base.getindex(z::Zeppelin, key::String) = getindex(z.header, uppercase(key))
 
 Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.data), copy(z.classnames))
 
@@ -231,7 +235,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     for (cn, _) in sbcm
         rows = rowsclass(zep,String(cn))
         #if length(rows)>0
-        push!(clss, String(cn))
+        push!(clss, repr(cn))
         push!(szs, length(rows))
         ds = summarystats(zep[rows,dcol])
         push!(minds, ds.min)

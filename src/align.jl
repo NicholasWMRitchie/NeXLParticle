@@ -230,7 +230,7 @@ function refined_alignment(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:Stati
         end
         return res
     end
-    fit = curve_fit(f, jac, flatten(ps2), flatten(ps1), SA[0.0, 0.0, 0.0]; inplace=true)
+    fit = curve_fit(f, jac, flatten(ps2), flatten(ps1), [0.0, 0.0, 0.0]; inplace=true)
     return LinearMap(Angle2d(fit.param[1])) ∘ Translation(fit.param[2:3])
 end
 

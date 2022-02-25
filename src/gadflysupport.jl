@@ -29,7 +29,7 @@ function Gadfly.plot(
     )
 end
 
-function Gadfly.plot(zeps::AbstractArray{Zeppelin}; offset=(0.0,0.0), point_size=1.5pt)
+function Gadfly.plot(zeps::AbstractArray{Zeppelin}; offset=(0.0,0.0), point_size=1.5pt, coords=missing)
     names = map(z->get(z.header,"DESCRIPTION",splitpath(z.headerfile)[end-1]), zeps)
     colors = map(i->NeXLPalette[1 + (i-1) % length(NeXLPalette)], eachindex(zeps))
     clsCx=collect(merge( [ StatsBase.countmap(repr.(z[:,:CLASS])) for z in zeps]...))
@@ -40,6 +40,13 @@ function Gadfly.plot(zeps::AbstractArray{Zeppelin}; offset=(0.0,0.0), point_size
         push!(clsCx,"Other"=>0)
     end
     shIdx=Dict(clsCx[i][1]=>i for i in eachindex(clsCx))
+    xmin = minimum(z->minimum(z.data[:,:XABS]), zeps)
+    xmax = maximum(z->maximum(z.data[:,:XABS]), zeps)
+    ymin = minimum(z->minimum(z.data[:,:YABS]), zeps)
+    ymax = maximum(z->maximum(z.data[:,:YABS]), zeps)
+    dmax = ceil(max(xmax-xmin, ymin-ymax)/2)
+    xc, yc = round((xmax+xmin)/2), round((ymin+ymax)/2)
+    coords = Coord.cartesian(xmin=xc-dmax,xmax=xc+dmax,ymin=yc-dmax,ymax=yc+dmax)
     plot(
         Theme(point_size=1.5pt),
         map(enumerate(zeps)) do (i,z)
@@ -53,6 +60,23 @@ function Gadfly.plot(zeps::AbstractArray{Zeppelin}; offset=(0.0,0.0), point_size
         end...,
         Guide.xlabel("X (mm)"), Guide.ylabel("Y (mm)"), 
         Guide.manual_color_key("Particle Data Set", names, colors),
-        Guide.shapekey(title="Particle Class", labels=map(cc->cc[1],clsCx))
+        Guide.shapekey(title="Particle Class", labels=map(cc->cc[1],clsCx)),
+        coords
+    )
+end
+
+function Gadfly.plot(::Type{Histogram}, zeps::AbstractArray, sym::Symbol; bincount=40, limits=missing)
+    names = map(z->get(z.header,"DESCRIPTION",splitpath(z.headerfile)[end-1]), zeps)
+    df = vcat(
+        map(enumerate(zeps)) do (i, z) 
+            DataFrame(Dataset=fill(names[i],nrow(z.data)), v=z.data[:,sym])
+        end...
+    )
+    if ismissing(limits)
+        limits = ( min=floor(minimum(z->minimum(z.data[:,sym]), zeps)), max=ceil(maximum(z->maximum(z.data[:,sym]), zeps)) )
+    end
+    h = Geom.histogram(bincount=bincount, position=:identity, limits=limits)
+    plot(df, x=:v, color=:Dataset, alpha=[0.5], h,
+        Guide.xlabel(repr(sym)[2:end]), Guide.ylabel("Count")        
     )
 end

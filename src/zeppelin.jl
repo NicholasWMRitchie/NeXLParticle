@@ -187,6 +187,7 @@ function Base.show(io::IO, zep::Zeppelin)
 end
 
 Base.size(z::Zeppelin) = size(z.data)
+Base.size(z::Zeppelin, i::Int) = size(z.data, i)
 
 classes(zep::Zeppelin) = levels(zep[:,"CLASS"])
 

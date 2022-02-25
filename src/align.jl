@@ -159,20 +159,16 @@ Returns a pair of indices `(idx1, idx2)` into `ps1` and `ps2` respectively such 
 `invert=true` inverts the meaning so returns particles which don't match well with another.
 """
 function correspondences(ps1::AbstractVector{<:StaticVector{2,T}}, ps2::AbstractVector{<:StaticVector{2,T}}; tol = 0.01, invert = false) where {T<:AbstractFloat}
-    (idx1, dist1) = nn(KDTree(ps2), ps1)
-    (idx2, _) = nn(KDTree(ps1), ps2)
-    keep = map(eachindex(idx1)) do i
-        # Reciprocal matches within tolerance
-        (i == idx2[idx1[i]]) && (dist1[i] < tol)
+    (idx1, _) = nn(KDTree(ps2), ps1) # idx1 is an index into ps2
+    (idx2, dist2) = nn(KDTree(ps1), ps2) # idx2 is an index into ps1
+    keep2 = map(enumerate(idx2)) do (i2, i1)
+        # Within tolerance and closest alternative in either direction
+        (dist2[i2] < tol) && (i2==idx1[i1])
     end
-    if invert
-        m1 = idx1[Not(keep)]
-        m2 = idx2[Not(m1)]
-    else
-        m1 = idx1[keep]
-        m2 = idx2[m1]
-    end
-    return m2, m1
+    c1 = idx2[keep2]
+    c2 = idx1[c1]
+    return invert ? ( Not(c1), Not(c2) ) : ( c1, c2 )
+
 end
 
 function orthogonal_procrustes_alignment(ps1::AbstractVector{<:StaticVector{2,T}}, ps2::AbstractVector{<:StaticVector{2,T}}; tol = 0.01) where {T<:AbstractFloat}

@@ -30,7 +30,7 @@ function Gadfly.plot(
 end
 
 function Gadfly.plot(zeps::AbstractArray{Zeppelin}; offset=(0.0,0.0), point_size=1.5pt, coords=missing)
-    names = map(z->get(z.header,"DESCRIPTION",splitpath(z.headerfile)[end-1]), zeps)
+    names = NeXLSpectrum.name.(zeps)
     colors = map(i->NeXLPalette[1 + (i-1) % length(NeXLPalette)], eachindex(zeps))
     clsCx=collect(merge( [ StatsBase.countmap(repr.(z[:,:CLASS])) for z in zeps]...))
     sort!(clsCx, lt=(a,b)->a[2]<b[2], rev=true)
@@ -66,7 +66,7 @@ function Gadfly.plot(zeps::AbstractArray{Zeppelin}; offset=(0.0,0.0), point_size
 end
 
 function Gadfly.plot(::Type{Histogram}, zeps::AbstractArray, sym::Symbol; bincount=40, limits=missing)
-    names = map(z->get(z.header,"DESCRIPTION",splitpath(z.headerfile)[end-1]), zeps)
+    names = NeXLSpectrum.name.(zeps)
     df = vcat(
         map(enumerate(zeps)) do (i, z) 
             DataFrame(Dataset=fill(names[i],nrow(z.data)), v=z.data[:,sym])

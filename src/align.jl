@@ -39,7 +39,7 @@ Sample a ground-truth particle data set in `pd`.  A randomized fraction `frac` o
 positions are transformed according to an `offset` and a rotation by `θ`. In addition, a measurement jitter the scale of 
 which is determiend by `eps` is added to each measured coordinate.
 """
-function measure_particles(rnd::AbstractRNG, pd::Vector{<:SVector{2}}, offset::SVector{2}, θ::Float64, frac::Float64, eps::Float64)
+function measure_particles(rnd::AbstractRNG, pd::AbstractVector{<:SVector{2}}, offset::SVector{2}, θ::Float64, frac::Float64, eps::Float64)
     @assert frac > 0.0 "The fraction measured `frac` must be larger than 0.0."
     @assert frac <= 1.0 "The fraction measured `frac` must be less than or equal to 1.0."
     rot = RotMatrix{2}(θ)
@@ -168,7 +168,6 @@ function correspondences(ps1::AbstractVector{<:StaticVector{2,T}}, ps2::Abstract
     c1 = idx2[keep2]
     c2 = idx1[c1]
     return invert ? ( Not(c1), Not(c2) ) : ( c1, c2 )
-
 end
 
 function orthogonal_procrustes_alignment(ps1::AbstractVector{<:StaticVector{2,T}}, ps2::AbstractVector{<:StaticVector{2,T}}; tol = 0.01) where {T<:AbstractFloat}
@@ -208,7 +207,7 @@ Example:
     julia> n(rs1, (ct3∘ct2).(cs2));
     julia> aps1, aps2 = ct1.(ps1), (ct3∘ct2).(ps2)           # Transform all points
 """
-function refined_alignment(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}) where {T<:AbstractFloat}
+function refined_alignment(ps1::AbstractVector{<:StaticVector{2,T}}, ps2::AbstractVector{<:StaticVector{2,T}}) where {T<:AbstractFloat}
     @assert length(ps1) == length(ps2)
     function flatten(ps)
         res = Array{T}(undef, 2 * length(ps))
@@ -254,7 +253,7 @@ Example:
     julia> (inv(ct1)∘ct2).(ps2) # Transforms ps2 to overlay ps1
     julia> (inv(ct2)∘ct1).(ps1) # Transforms ps1 to overlay ps2
 """
-function align(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}}; tol = 0.001, finealign = true) where {T<:AbstractFloat}
+function align(ps1::AbstractVector{<:StaticVector{2,T}}, ps2::AbstractVector{<:StaticVector{2,T}}; tol = 0.001, finealign = true) where {T<:AbstractFloat}
     ct1, ct2 = rough_align(ps1, ps2; tol = tol)
     if finealign
         rs1, rs2 = ct1.(ps1), ct2.(ps2)
@@ -264,4 +263,62 @@ function align(ps1::Vector{<:StaticVector{2,T}}, ps2::Vector{<:StaticVector{2,T}
         ct2 = ct3 ∘ ct2
     end
     return (ct1, ct2)
+end
+
+"""
+    identify(pss::AbstractVector{<:AbstractVector{<:StaticVector{2,T}}}; tol=0.001, ctol=0.01 )::DataFrame where { T <: AbstractFloat}
+
+Takes a vector of X-Y coordinate vectors.  Aligns the X-Y coordinate vectors to the first one.  Then it labels each unique particle and
+identifies the index (if any) in which it appears in each data set.  Thus we are able to track particle identities through the data sets.
+Each row in the returned `DataFrame` represents a "unique particle".  The `:PS?` columns represent the index of the particle in that
+X-Y coordinate vectors. The `:COUNT` column represents the number of data sets in which the particle was measured.  The `:FIRST` column
+indicates the first data set in which the particle was observed.
+"""
+function identify(pss::AbstractVector{<:AbstractVector{<:StaticVector{2,T}}}; tol=0.001, ctol=0.01 )::DataFrame where { T <: AbstractFloat}
+    # Align all pss relative to pss[1]
+    als = map(pss) do psj
+        if psj==pss[1]
+            pss[1]
+        else
+            cti, ctj = align(pss[1], psj, tol=tol, finealign=true)
+            (inv(cti)∘ctj).(psj)
+        end
+    end
+    df = DataFrame( (Symbol("PS$i")=> Union{Missing,Int}[] for i in eachindex(als))...)
+    for i in eachindex(als)
+        alsi = als[i]
+        # Determine the indices of the previously unseen particles in als[i]
+        unseen = fill(true, length(alsi))
+        foreach(i-> (!ismissing(i)) && (unseen[i]=false), df[:,i])
+        idxs=collect(eachindex(alsi)[unseen])
+        # Get the coordinates of these particle
+        uni=collect(alsi[idxs])
+        # Find correspondences for these particles with later data sets
+        cijs = map(i+1:length(als)) do j
+            ci, cj = correspondences(uni, als[j], tol=ctol)
+            tmp = zeros(Int, length(uni))
+            tmp[ci] .= cj
+            tmp
+        end
+        ztom(x) = x==zero(typeof(x)) ? missing : x
+        for (ii, ind) in enumerate(idxs)
+            # uni[ii]=alsi[ind]
+            push!(df, [ ( missing for jj in 1:i-1)..., ind, ( ztom(cij[ii]) for cij in cijs )...])
+        end
+    end
+    f = CategoricalArray(map(eachrow(df)) do r
+        findfirst(c->!ismissing(c), Tuple(r))
+    end, ordered=true)
+    c = map(eachrow(df)) do r
+        count(c->!ismissing(c), Tuple(r))
+    end
+    x = map(eachrow(df)) do r
+        mean(skipmissing(map(i->ismissing(r[i]) ? missing : als[i][r[i]][1], 1:length(r))))
+    end
+    y = map(eachrow(df)) do r
+        mean(skipmissing(map(i->ismissing(r[i]) ? missing : als[i][r[i]][2], 1:length(r))))
+    end
+    insertcols!(df, :APPEARS => f, :COUNT => c, :XABS => x, :YABS => y )
+    sort!(df, [ :APPEARS, order(:COUNT,rev=true) ], alg=MergeSort) # Maintains order
+    df
 end

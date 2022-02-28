@@ -74,6 +74,12 @@ struct Zeppelin
     Zeppelin( hdzfilename::String) = loadZep( hdzfilename)
 end
 
+
+function NeXLSpectrum.name(zep::Zeppelin)
+    get(zep.header, "NAME", get(zep.header, "DESCRIPTION", splitpath(zep.headerfile)[end-1]))
+end
+
+
 struct ZepClass
     zep::Zeppelin
     index::Int
@@ -700,4 +706,26 @@ function correspondences(zep1::Zeppelin, zep2::Zeppelin; tol=0.01, invert=false)
         Zeppelin(zep1.headerfile, copy(zep1.header), zep1.data[c1, :], copy(zep1.classnames)),
         Zeppelin(zep2.headerfile, copy(zep2.header), zep2.data[c2, :], copy(zep2.classnames))
     )
+end
+
+
+"""
+    identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01)::DataFrame
+
+Takes multiple Zeppelin data sets that represent the same particles and returns a `DataFrame`
+that identifies the particles from one data set to the next.  The algorithm aligns the data sets
+by determining the rotation and offset to bring them into registration.  Then it identifies all 
+the unique particles by position and tracks them from one data set to the next.  The number of
+rows in the `DataFrame` is the number of unique particle positions identified (the `:XABS` and
+`:YABS` colums).  The `:COUNT` column is the number of times a particle was found at this 
+position.  The `:APPEARS` column is the first particle data set in which it was found by index.
+The first columns are the index at which the particle is found in the `Zeppelin` data set.
+"""
+function identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01)
+    pss=map(zeps) do zep
+        map(xy-> SA[ xy... ], zip(zep[:, :XABS], zep[:,:YABS]))
+    end
+    res = identify(pss; tol=tol, ctol=ctol)
+    rename!(res, ("PS$i"=>NeXLSpectrum.name(zeps[i]) for i in eachindex(zeps))...)
+    res
 end

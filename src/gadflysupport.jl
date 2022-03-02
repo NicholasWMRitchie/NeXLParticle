@@ -44,8 +44,8 @@ function Gadfly.plot(zeps::AbstractArray{Zeppelin}; offset=(0.0,0.0), point_size
     xmax = maximum(z->maximum(z.data[:,:XABS]), zeps)
     ymin = minimum(z->minimum(z.data[:,:YABS]), zeps)
     ymax = maximum(z->maximum(z.data[:,:YABS]), zeps)
-    dmax = ceil(max(xmax-xmin, ymin-ymax)/2)
-    xc, yc = round((xmax+xmin)/2), round((ymin+ymax)/2)
+    dmax = ceil(max(xmax-xmin, ymax-ymin)/2)
+    xc, yc = round((xmax+xmin)/2), round((ymax+ymin)/2)
     coords = Coord.cartesian(xmin=xc-dmax,xmax=xc+dmax,ymin=yc-dmax,ymax=yc+dmax)
     plot(
         Theme(point_size=1.5pt),

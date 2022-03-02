@@ -727,5 +727,7 @@ function identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01)
     end
     res = identify(pss; tol=tol, ctol=ctol)
     rename!(res, ("PS$i"=>NeXLSpectrum.name(zeps[i]) for i in eachindex(zeps))...)
+    l = levels(res[:, :APPEARS])
+    insertcols!(res, length(zeps)+2, :ZEPPELIN => map(i->name(zeps[l[i.ref]]), res[:,:APPEARS]))
     res
 end

@@ -309,9 +309,9 @@ function identify(pss::AbstractVector{<:AbstractVector{<:StaticVector{2,T}}}; to
     f = CategoricalArray(map(eachrow(df)) do r
         findfirst(c->!ismissing(c), Tuple(r))
     end, ordered=true)
-    c = map(eachrow(df)) do r
+    c = CategoricalArray(map(eachrow(df)) do r
         count(c->!ismissing(c), Tuple(r))
-    end
+    end, ordered=true)
     x = map(eachrow(df)) do r
         mean(skipmissing(map(i->ismissing(r[i]) ? missing : als[i][r[i]][1], 1:length(r))))
     end

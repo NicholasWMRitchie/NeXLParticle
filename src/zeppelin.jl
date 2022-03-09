@@ -284,10 +284,12 @@ end
 
 """
     zep[123] # where zep is a Zeppelin
+    zep[1:2:8]
 
-Returns the Spectrum (with images) associated with the particle at row
+Returns the Spectrum (with images) associated with the particle at row or rows
 """
 Base.getindex(zep::Zeppelin, row::Int) = spectrum(zep, row, true)
+Base.getindex(zep::Zeppelin, rows) = map(row->spectrum(zep, row, true), rows)
 
 Base.getindex(zep::Zeppelin, rows, cols) = Base.getindex(zep.data, rows, cols)
 
@@ -357,7 +359,7 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true, relocated=true)::Uni
             at[:BeamEnergy] = beamenergy(zep, get(at, :BeamEnergy, 20.0e3))
             at[:ProbeCurrent] = get(at, :ProbeCurrent, probecurrent(zep, 1.0))
             at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in elms(zep)))
-            # at[:Name] = "P[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASS])]"
+            at[:Name] = "$(name(zep))[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASS])]"
         catch
             @info "Error adding properties to ASPEX TIFF file."
         end
@@ -710,7 +712,7 @@ end
 
 
 """
-    identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01)::DataFrame
+    identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01, columns=())::DataFrame
 
 Takes multiple Zeppelin data sets that represent the same particles and returns a `DataFrame`
 that identifies the particles from one data set to the next.  The algorithm aligns the data sets
@@ -720,8 +722,11 @@ rows in the `DataFrame` is the number of unique particle positions identified (t
 `:YABS` colums).  The `:COUNT` column is the number of times a particle was found at this 
 position.  The `:APPEARS` column is the first particle data set in which it was found by index.
 The first columns are the index at which the particle is found in the `Zeppelin` data set.
+
+The columns argument allows you to extract `mean` and `std` for a property of a physical particle 
+within the data sets in which it was measured.  Like: `columns=(:DAVG, :AREA)`
 """
-function identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01)
+function identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01, columns=())
     pss=map(zeps) do zep
         map(xy-> SA[ xy... ], zip(zep[:, :XABS], zep[:,:YABS]))
     end
@@ -729,5 +734,15 @@ function identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01)
     rename!(res, ("PS$i"=>NeXLSpectrum.name(zeps[i]) for i in eachindex(zeps))...)
     l = levels(res[:, :APPEARS])
     insertcols!(res, length(zeps)+2, :ZEPPELIN => map(i->name(zeps[l[i.ref]]), res[:,:APPEARS]))
+    for col in columns
+        cm=map(eachrow(res)) do r
+            mean(skipmissing( [ismissing(r[i]) ? missing : z[r[i], col] for (i, z) in enumerate(zeps)]))
+        end
+        cs=map(eachrow(res)) do r
+            std(skipmissing( [ismissing(r[i]) ? missing : z[r[i], col] for (i, z) in enumerate(zeps)]))
+        end
+        insertcols!(res, Symbol(col,"_mean")=>cm)
+        insertcols!(res, Symbol(col,"_std")=>cs)
+    end
     res
 end

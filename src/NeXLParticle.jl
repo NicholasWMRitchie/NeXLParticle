@@ -87,9 +87,9 @@ export asimage
 export defaultpalette
 
 include("align.jl")
-export rough_align
-export AlignIntermediary
-export offset, score, findbest, align
+export align           # Returns the optimal parameters to align two point sets
+export correspondences # Returns two lists of particle indices which match with each other
+export identify        # identifies particles that two particle data sets hold in common
 
 include("translate.jl")
 export XYPosition

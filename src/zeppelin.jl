@@ -74,6 +74,12 @@ struct Zeppelin
     Zeppelin( hdzfilename::String) = loadZep( hdzfilename)
 end
 
+
+function NeXLSpectrum.name(zep::Zeppelin)
+    get(zep.header, "NAME", get(zep.header, "DESCRIPTION", splitpath(zep.headerfile)[end-1]))
+end
+
+
 struct ZepClass
     zep::Zeppelin
     index::Int
@@ -88,7 +94,12 @@ function Base.show(io::IO, zc::ZepClass)
     end
 end
 Base.:(==)(zc1::ZepClass, zc2::ZepClass) = zc1.index==zc2.index
+Base.:(==)(zc1::ZepClass, zc2::AbstractString) = repr(zc1)==zc2
+Base.:(==)(zc1::AbstractString, zc2::ZepClass) = zc1==repr(zc2)
+Base.String(zc::ZepClass) = repr(zc)
 
+Base.get(z::Zeppelin, key::String, def=missing) = get(z.header, uppercase(key), def)
+Base.getindex(z::Zeppelin, key::String) = getindex(z.header, uppercase(key))
 
 Base.copy(z::Zeppelin) = Zeppelin(z.headerfile, copy(z.header), copy(z.data), copy(z.classnames))
 
@@ -182,6 +193,7 @@ function Base.show(io::IO, zep::Zeppelin)
 end
 
 Base.size(z::Zeppelin) = size(z.data)
+Base.size(z::Zeppelin, i::Int) = size(z.data, i)
 
 classes(zep::Zeppelin) = levels(zep[:,"CLASS"])
 
@@ -230,7 +242,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     for (cn, _) in sbcm
         rows = rowsclass(zep,String(cn))
         #if length(rows)>0
-        push!(clss, String(cn))
+        push!(clss, repr(cn))
         push!(szs, length(rows))
         ds = summarystats(zep[rows,dcol])
         push!(minds, ds.min)
@@ -272,10 +284,12 @@ end
 
 """
     zep[123] # where zep is a Zeppelin
+    zep[1:2:8]
 
-Returns the Spectrum (with images) associated with the particle at row
+Returns the Spectrum (with images) associated with the particle at row or rows
 """
 Base.getindex(zep::Zeppelin, row::Int) = spectrum(zep, row, true)
+Base.getindex(zep::Zeppelin, rows) = map(row->spectrum(zep, row, true), rows)
 
 Base.getindex(zep::Zeppelin, rows, cols) = Base.getindex(zep.data, rows, cols)
 
@@ -345,7 +359,7 @@ function spectrum(zep::Zeppelin, row::Int, withImgs = true, relocated=true)::Uni
             at[:BeamEnergy] = beamenergy(zep, get(at, :BeamEnergy, 20.0e3))
             at[:ProbeCurrent] = get(at, :ProbeCurrent, probecurrent(zep, 1.0))
             at[:Signature] = filter(kv->kv[2]>0.0, Dict(elm => zep.data[row, convert(Symbol,elm)] for elm in elms(zep)))
-            # at[:Name] = "P[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASS])]"
+            at[:Name] = "$(name(zep))[$(zep.data[row, :NUMBER]), $(zep.data[row, :CLASS])]"
         catch
             @info "Error adding properties to ASPEX TIFF file."
         end
@@ -633,9 +647,11 @@ with only the rows for which the function evaluated true.
 Example:
 
     gsr = filter(row->startswith( String(row["CLASS"]), "GSR."), zep)
-
 """
-Base.filter(filt::Function, zep::Zeppelin) = filter(r->filt(zep.data[r,:]), eachparticle(zep))
+function Base.filter(filt::Function, zep::Zeppelin)::Zeppelin 
+    zd = filter(filt, zep.data; view=false)
+    return Zeppelin(zep.headerfile, copy(zep.header), zd, copy(zep.classnames))
+end
 
 const MORPH_COLS = ( "NUMBER", "XABS", "YABS", "DAVG", "DMIN", "DMAX", "DPERP", "PERIMETER", "ORIENTATION", "AREA" )
 const CLASS_COLS = ( "CLASS", "VERIFIEDCLASS", "IMPORTANCE" )
@@ -659,4 +675,74 @@ function translate(zep::Zeppelin, am::AbstractAffineMap)::Zeppelin
         ( r.XABS, r.YABS ) = am(SVector(r.XABS, r.YABS))
     end
     return res
+end
+
+"""
+    align(zep1::Zeppelin, zep2::Zeppelin; tol=0.001, finealign=true)
+
+Aligns `zep2` to overlay with `zep1`.   `zep1` and `zep2` are assumed to be particle data sets collected
+from the same sample but that may translated and rotated from one-another.   Not all the particles need to
+correspond between `zep1` and `zep2` but many must.
+The function returns a copy of `zep2` transformed to overlay `zep1`.
+"""
+function align(zep1::Zeppelin, zep2::Zeppelin; tol=0.001, finealign=true)
+    ps1 = map(xy-> SA[ xy... ], zip(zep1[:, :XABS], zep1[:,:YABS]))
+    ps2 = map(xy-> SA[ xy... ], zip(zep2[:, :XABS], zep2[:,:YABS]))
+    ct1, ct2 = align(ps1, ps2, tol=tol, finealign=finealign)
+    return translate(zep2, inv(ct1)∘ct2)
+end
+"""
+    correspondences(zep1::Zeppelin, zep2::Zeppelin; tol=0.01, invert=false)
+
+Identify particle correspondences between `zep1` and `zep2`.  Returns two new
+`Zeppelin` data sets `zc1` and `zc2` in which corresponding particles are matched 
+by row index. So `zc1[1,:]` is likely to refer to the same particle as `zc2[1, :]`.
+Unless invert is chosen, in which case only the particles with no corresponding 
+partners are returned.
+"""
+function correspondences(zep1::Zeppelin, zep2::Zeppelin; tol=0.01, invert=false)
+    ps1 = map(xy-> SA[ xy... ], zip(zep1[:, :XABS], zep1[:,:YABS]))
+    ps2 = map(xy-> SA[ xy... ], zip(zep2[:, :XABS], zep2[:,:YABS]))
+    c1, c2 = correspondences(ps1, ps2, tol=tol, invert=invert)
+    return ( 
+        Zeppelin(zep1.headerfile, copy(zep1.header), zep1.data[c1, :], copy(zep1.classnames)),
+        Zeppelin(zep2.headerfile, copy(zep2.header), zep2.data[c2, :], copy(zep2.classnames))
+    )
+end
+
+
+"""
+    identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01, columns=())::DataFrame
+
+Takes multiple Zeppelin data sets that represent the same particles and returns a `DataFrame`
+that identifies the particles from one data set to the next.  The algorithm aligns the data sets
+by determining the rotation and offset to bring them into registration.  Then it identifies all 
+the unique particles by position and tracks them from one data set to the next.  The number of
+rows in the `DataFrame` is the number of unique particle positions identified (the `:XABS` and
+`:YABS` colums).  The `:COUNT` column is the number of times a particle was found at this 
+position.  The `:APPEARS` column is the first particle data set in which it was found by index.
+The first columns are the index at which the particle is found in the `Zeppelin` data set.
+
+The columns argument allows you to extract `mean` and `std` for a property of a physical particle 
+within the data sets in which it was measured.  Like: `columns=(:DAVG, :AREA)`
+"""
+function identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01, columns=())
+    pss=map(zeps) do zep
+        map(xy-> SA[ xy... ], zip(zep[:, :XABS], zep[:,:YABS]))
+    end
+    res = identify(pss; tol=tol, ctol=ctol)
+    rename!(res, ("PS$i"=>NeXLSpectrum.name(zeps[i]) for i in eachindex(zeps))...)
+    l = levels(res[:, :APPEARS])
+    insertcols!(res, length(zeps)+2, :ZEPPELIN => map(i->name(zeps[l[i.ref]]), res[:,:APPEARS]))
+    for col in columns
+        cm=map(eachrow(res)) do r
+            mean(skipmissing( [ismissing(r[i]) ? missing : z[r[i], col] for (i, z) in enumerate(zeps)]))
+        end
+        cs=map(eachrow(res)) do r
+            std(skipmissing( [ismissing(r[i]) ? missing : z[r[i], col] for (i, z) in enumerate(zeps)]))
+        end
+        insertcols!(res, Symbol(col,"_mean")=>cm)
+        insertcols!(res, Symbol(col,"_std")=>cs)
+    end
+    res
 end

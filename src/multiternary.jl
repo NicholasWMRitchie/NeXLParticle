@@ -175,7 +175,7 @@ function multiternary(
     # Determine which elements to plot...
     zd = ismissing(rows) ? zep.data : zep.data[rows, :]
     df=DataFrame(Elm=Symbol[], Mean=Float64[])
-    foreach(elm->push!(df, [ convert(Symbol,elm), mean(zd[:,convert(Symbol, elm)])]),  filter(elm->!(elm in omit), zep.elms))
+    foreach(elm->push!(df, [ convert(Symbol,elm), mean(zd[:,convert(Symbol, elm)])]),  filter(elm->!(elm in omit), NeXLCore.elms(zep)))
     sort!(df, :Mean, rev=true)
     elms = df[:,:Elm][1:min(size(df,1),6)]
     multiternary(zd, elms, :CLASS, title=zep.header["DESCRIPTION"], palette=palette, norm=100.0, fontsize=fontsize, font=font)

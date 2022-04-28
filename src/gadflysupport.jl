@@ -9,7 +9,7 @@ function Gadfly.plot(
     klms = [],
     xmin = 0.0,
     xmax = missing,
-    norm = :None,
+    norm = NoScaling(),
     yscale = 1.05,
     ytransform = identity,
     style = NeXLSpectrum.NeXLSpectrumStyle,

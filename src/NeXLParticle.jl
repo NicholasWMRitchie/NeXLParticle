@@ -36,12 +36,12 @@ export NoCulling
 
 include("classrule.jl")
 export classify
+export test_classifier
 export OrderedRuleSet
 export GSRRules
 
 include("baseRules.jl")
 export BaseRules
-include("nullRules.jl")
 export NullRules
 
 include("multiternary.jl")

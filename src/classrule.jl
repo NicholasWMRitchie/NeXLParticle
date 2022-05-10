@@ -2,12 +2,13 @@ using CategoricalArrays
 
 struct OrderedRuleSet <: ParticleClassifier
     name::String
-    rules::Vector{Tuple{String,Function}}
+    rules::Vector{Pair{String,Function}}
 
-    OrderedRuleSet(name::String, rules::Tuple{String,Function}...) = new(name, collect(rules))
+    OrderedRuleSet(name::String, rules::AbstractVector{Pair{String,Function}}) = new(name, rules)
+    OrderedRuleSet(name::String, rules::Pair{String,Function}...) = new(name, collect(rules))
 
     function OrderedRuleSet(orss::OrderedRuleSet...)
-        rules = Vector{Tuple{String,Function}}()
+        rules = Vector{Pair{String,Function}}()
         name = String[]
         for ors in orss
             append!(rules, ors.rules)
@@ -18,7 +19,7 @@ struct OrderedRuleSet <: ParticleClassifier
 end
 
 Base.show(io::IO, ors::OrderedRuleSet) = print(io, "JORS[$(ors.name)]")
-classnames(sr::OrderedRuleSet) = collect(map(r -> r[1], sr.rules))
+classnames(sr::OrderedRuleSet) = collect(map(r -> r.first, sr.rules))
 
 """
     classify(zep::Zeppelin, ruleset::AbstractString, classnames::AbstractVector, clsidx::AbstractVector{Int})
@@ -28,7 +29,7 @@ Constructs a new Zeppelin item and replaces the "CLASS" column with the classes 
 function classify(zep::Zeppelin, ruleset::AbstractString, classnames::AbstractVector{<:AbstractString}, clsidx::AbstractVector{<:Integer})
     @assert length(clsidx)==nrow(zep.data) "The number of assigned classes must match the number of rows."
     @assert minimum(clsidx)>=-1 "The minimum class index must be -1 or greater."
-    @assert maximum(clsidx)<length(classnames) "The maximum class index must less than the number of class names."
+    @assert maximum(clsidx)<=length(classnames) "The maximum class index must less than the number of class names."
     clscol = findfirst(isequal("CLASS"), names(zep.data))
     # Remove "CLASS" and "VERIFIED_CLASS" columns
     rd = copy(zep.data)[:, Cols(x -> !(x in ("CLASS", "VERIFIEDCLASS")))]
@@ -41,6 +42,7 @@ function classify(zep::Zeppelin, ruleset::AbstractString, classnames::AbstractVe
     insertcols!(result.data, clscol+1, "VERIFIEDCLASS" => fill(ZepClass(result, -1), nrow(rd)))
     return result
 end
+
 
 """
     classify(zep::Zeppelin, ruleset::AbstractString, catcls::AbstractVector{String})
@@ -91,14 +93,13 @@ Classify the rows in `zep`, row-by-row by calling the applying the `OrderedRuleS
 Zeppelin object.
 """
 function classify(zep::Zeppelin, sr::OrderedRuleSet)::Zeppelin
-    cat = empty!(categorical(append!(classnames(sr), ["Other", "Missing", "Error"]), compress=false, ordered = true)) # set up the levels
     errcx = 0
-    defs = Dict(Symbol(uppercase(e.symbol))=>0.0 for e in elements)
+    defs = Dict(Symbol(uppercase(e.symbol))=>0.0 for e in elements) # For elements without columns in zep.data
     cres = ThreadsX.map(eachrow(zep.data)) do row
         try
             input = _RowAdapter(row, defs)
-            i = findfirst(rule -> rule[2](input), sr.rules)
-            isnothing(i) ? "Other" : sr.rules[i][1] 
+            i = findfirst(rule -> rule.second(input), sr.rules)
+            isnothing(i) ? "Other" : sr.rules[i].first 
         catch err
             if (errcx += 1) <= 4
                 @info "ERROR[$errcx]: " exception=(err, catch_backtrace())
@@ -106,8 +107,28 @@ function classify(zep::Zeppelin, sr::OrderedRuleSet)::Zeppelin
             "Error"
         end
     end
-    append!(cat, cres)
-    res = classify(zep, repr(sr), cat)
+    cat = empty!(categorical(append!(classnames(sr), ["Other", "Missing", "Error"]), compress=false, ordered = true)) # set up the levels
+    res = classify(zep, repr(sr), append!(cat, cres))
     res.header["RULE_FILE"]=repr(sr)
     return res
+end
+
+function test_classifier(zep::Zeppelin, sr::OrderedRuleSet)
+    errcx = 0
+    defs = Dict(Symbol(uppercase(e.symbol))=>0.0 for e in elements) # For elements without columns in zep.data
+    for row in eachrow(zep.data)
+        input = _RowAdapter(row, defs)
+        for rule in sr.rules
+            try
+                rule.second(input)
+            catch err
+                errcx += 1
+                @info "ERROR[NUMBER=$(row.NUMBER), Rule=$(rule.first)]: " exception=(err, catch_backtrace())
+            end
+        end
+        if errcx > 10
+            break
+        end
+    end
+    return errcx
 end

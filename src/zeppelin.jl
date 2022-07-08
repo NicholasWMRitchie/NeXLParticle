@@ -290,10 +290,8 @@ Returns the Spectrum (with images) associated with the particle at row or rows
 """
 Base.getindex(zep::Zeppelin, row::Int) = spectrum(zep, row, true)
 Base.getindex(zep::Zeppelin, rows) = map(row->spectrum(zep, row, true), rows)
-
-Base.getindex(zep::Zeppelin, rows, cols) = Base.getindex(zep.data, rows, cols)
-
-Base.lastindex(zep::Zeppelin, axis::Integer) = Base.lastindex(zep.data, axis)
+Base.getindex(zep::Zeppelin, rows, cols) = getindex(zep.data, rows, cols)
+Base.lastindex(zep::Zeppelin, axis::Integer) = lastindex(zep.data, axis)
 
 # Replace the default in PeriodicTable because it is too verbose...
 # Base.show(io::IO, elm::Element) = print(io, elm.symbol)
@@ -745,4 +743,16 @@ function identify(zeps::AbstractArray{Zeppelin}; tol=0.001, ctol=0.01, columns=(
         insertcols!(res, Symbol(col,"_std")=>cs)
     end
     res
+end
+
+Base.eachrow(zep::Zeppelin) = eachrow(zep.data)
+DataAPI.nrow(zep::Zeppelin) = nrow(zep.data)
+DataAPI.ncol(zep::Zeppelin) = ncol(zep.data)
+function Base.sort!(zep::Zeppelin, cols=All(); nargs...)
+    sort!(zep.data, cols; nargs...)
+    return zep
+end
+function Base.sort(zep::Zeppelin, cols=All(); nargs...)
+    sd = sort(zep.data, cols; nargs...)
+    return Zeppelin(zep.headerfile, copy(zep.header), sd, copy(zep.classnames))
 end

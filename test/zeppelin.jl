@@ -1,7 +1,7 @@
 using NeXLParticle
 using Test
 using DataDeps
-
+using DataFrames
 
 
 @testset "ZepTest" begin
@@ -20,6 +20,10 @@ using DataDeps
     @test magdata(zep,0)["Area"]==5.112
     @test length(classes(zep))==27
     @test maxparticle(zep,1:10)[123] == 42.0
+
+    @test nrow(zep) == nrow(zep.data)
+    @test ncol(zep) == ncol(zep.data)
+    @test first(eachrow(zep)).NUMBER == first(eachrow(zep.data)).NUMBER
     refs = references( [
         reference(n"Ag", joinpath(zeptest,"Standards","Ag std.msa")),
         reference(n"Al", joinpath(zeptest,"Standards","Al std.msa")),
@@ -59,7 +63,7 @@ using DataDeps
     @time quantify(zep, refs, withUncertainty=true)
     res = @time quantify(zep, refs, withUncertainty=false)
     @test isapprox(res[6,:FE], 94.87, atol=0.01)
-    @test isapprox(res[26,:CA], 23.48, atol=0.01)
+    @test isapprox(res[26,:CA], 23.49, atol=0.01)
     @test isapprox(res[169, :BA], 39.38, atol=0.01)
     @test res[160,:FIRSTELM]==n"Si"
     @test res[172,:SECONDELM]==n"Ti"
@@ -72,7 +76,7 @@ using DataDeps
     res2 = Zeppelin(outfile)
     @test classes(zep) == classes(res2)
     @test isapprox(res2[6,:FE], 94.87, atol=0.01)
-    @test isapprox(res2[26,:CA], 23.48, atol=0.01)
+    @test isapprox(res2[26,:CA], 23.49, atol=0.01)
     @test isapprox(res2[169, :BA], 39.38, atol=0.01)
     @test res2[160,:FIRSTELM]==n"Si"
     @test res2[172,:SECONDELM]==n"Ti"
@@ -88,4 +92,8 @@ using DataDeps
     @test repr(res3[20, "CLASS"]) == "Dolomite"
     @test (r -> (r.CA > 40) && (r.MG > 10) && (r.CA + r.MG > 70))(res3[20,:]) 
     rm(joinpath(tempdir(),"tmp.hdz"))
+
+
+
+
 end

@@ -16,7 +16,7 @@ using Rotations
         ps1 = NeXLParticle.measure_particles(rnd, xy, SA[-10.0,5.0], deg2rad(12.0), 0.8, 0.003)
         ps2 = NeXLParticle.measure_particles(rnd, xy, SA[-2.0,-1.0], deg2rad(213.0), 0.78, 0.003)
 
-        (ct1, ct2) = rough_align(ps1, ps2, tol=0.001)
+        (ct1, ct2) = NeXLParticle.rough_align(ps1, ps2, tol=0.001)
         @test isapprox(ct1.linear, LinearAlgebra.I, atol=1.0e-8)
         @test isapprox(ct1.translation, [9.463509135855892, -5.084006487177425], atol=1.0e-8)
         @test isapprox(ct2.linear, [-0.933518161752927 -0.35853011265085666; 0.35853011265085666 -0.933518161752927], atol=1.0e-8)

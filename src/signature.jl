@@ -201,7 +201,8 @@ function NeXLMatrixCorrection.quantify(
     cullRule::CullingRule = NSigmaCulling(3.0),
     writeResidual::Bool = true,
     withUncertainty::Bool = true,
-    relocated::Bool = true)
+    relocated::Bool = true
+)::Zeppelin
     qr = _quant(zep,ffp,rows,strip,special,cullRule,writeResidual,withUncertainty,relocated)
     # Remove old items...
     els = collect(elms(zep))

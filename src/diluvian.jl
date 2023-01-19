@@ -47,7 +47,8 @@ struct DiluvianCluster
   count::Int
 
   function DiluvianCluster(df::AbstractDataFrame, bin::Function = defbin, connects::Function = defconnects)
-    return DiluvianCluster(names(df), [ df[:, name] for name in names ], bin=bin, connects=connects)
+    nms = names(df)
+    return DiluvianCluster(nms, [ df[:, name] for name in nms ], bin=bin, connects=connects)
   end
 
   function DiluvianCluster(

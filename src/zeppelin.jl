@@ -240,7 +240,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     maxds = Float64[ ds.max ]
     sbcm = StatsBase.countmap(zep[:,"CLASS"])
     for (cn, _) in sbcm
-        rows = rowsclass(zep,String(cn))
+        rows = rowsclass(zep,repr(cn))
         #if length(rows)>0
         push!(clss, repr(cn))
         push!(szs, length(rows))
@@ -262,7 +262,7 @@ function DataAPI.describe(zep::Zeppelin; dcol=:DAVG, nelms=3)
     end
     for (cn, _) in sbcm
         try
-            ss = sortedstats(rowsclass(zep, String(cn)))
+            ss = sortedstats(rowsclass(zep, repr(cn)))
             for ne in 1:cnelms
                 sst = ss[ne][2]
                 push!(elmdfs[ne], [ symbol(ss[ne][1]), sst.min, sst.median, sst.max ])

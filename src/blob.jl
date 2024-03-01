@@ -2,6 +2,8 @@ using FileIO
 using Images
 using LinearAlgebra
 using Statistics
+using GLM
+using DataFrames
 
 """
 A Blob is a mask consisting of blocks of adjacent pixels meeting a threshold.
@@ -54,7 +56,6 @@ struct Blob
         @assert ndims(mask) == 2
         @assert size(bounds) == size(mask)
         ci, stps = perimeter(mask)
-        # cip = CartesianIndex([ci.I[i]+bounds.indices[i].start-1 for i in eachindex(ci.I)]...)
         return new(bounds, mask, ci, stps)
     end
 end
@@ -122,6 +123,89 @@ function blob(img::AbstractArray, thresh::Function)::Vector{Blob}
     ]
     sort!(blobs, lt = (b1, b2) -> area(b1) > area(b2))
     return blobs
+end
+
+function hosen_kopelman(img::AbstractArray, thresh::Function)# ::Vector{Blob}
+    largest_label = 0
+    label = zeros(Int, size(img))
+    labels = zeros(Int, length(img)÷2+1) # Array containing integers from 1 to the size of the image.
+
+    function find(x)
+        y = x
+        while labels[y] != y
+            y = labels[y]
+        end
+        while labels[x] != x
+            ( labels[x], x ) = ( y, labels[x] )
+        end
+        y
+    end
+
+    function union(x, y)
+        labels[find(x)] = find(y)
+    end
+
+    for ci in filter(ci->thresh(img[ci]), CartesianIndices(img))
+        left = get(label, ci + CartesianIndex(0,-1), 0)
+        above = get(label, ci + CartesianIndex(-1,0), 0)
+        if (left == 0) && (above == 0) # Neither a label above or to the left.
+            largest_label += 1 # Make a new, as-yet-unused cluster label.
+            @assert(labels[largest_label]==0)
+            labels[largest_label] = largest_label
+            label[ci] = largest_label
+        elseif (left!=0) && (above!=0)
+            union(left, above); # Link the left and above clusters.
+            label[ci] = find(left)
+        else            
+            label[ci] = max(left, above)
+        end
+    end
+
+    new_labels = zeros(largest_label)
+    largest_new_label = 0
+    for ci in filter(ci->label[ci]!=0, CartesianIndices(label))
+        x = find(label[ci])
+        if new_labels[x] == 0
+            largest_new_label += 1
+            new_labels[x] = largest_new_label
+        end
+        label[ci]=new_labels[x]
+    end
+    if false
+        function check_labeling(lbl)
+            for ci in filter(ci->lbl[ci]!=0, CartesianIndices(lbl))
+                N = get(lbl, ci + CartesianIndex(-1,0), 0)
+                S = get(lbl, ci + CartesianIndex(1,0), 0)
+                E = get(lbl, ci + CartesianIndex(0,-1), 0)
+                W = get(lbl, ci + CartesianIndex(0,1), 0)
+                @assert N==0 || lbl[ci]==N "N $ci $(lbl[ci])!=$N"
+                @assert S==0 || lbl[ci]==S "S $ci $(lbl[ci])!=$S"
+                @assert E==0 || lbl[ci]==E "E $ci $(lbl[ci])!=$E"
+                @assert W==0 || lbl[ci]==W "W $ci $(lbl[ci])!=$W"
+            end
+        end
+        check_labeling(label)
+    end
+    left = fill(typemax(Int), largest_new_label)
+    right = fill(typemin(Int), largest_new_label)
+    top = fill(typemax(Int), largest_new_label)
+    bottom = fill(typemin(Int), largest_new_label)
+    for ci in CartesianIndices(img)
+         lbl = label[ci]
+         if lbl != 0
+            top[lbl] = min(top[lbl], ci.I[1])
+            bottom[lbl] = max(bottom[lbl], ci.I[1])
+            left[lbl] = min(left[lbl], ci.I[2])
+            right[lbl] = max(right[lbl], ci.I[2])
+        end
+    end
+
+    blobs = map(filter(i->left[i]!=typemax(Int), eachindex(left))) do i
+        cix = CartesianIndices((top[i]:bottom[i], left[i]:right[i]))
+        Blob(cix, BitArray(label[ci]==i for ci in cix))
+    end
+    sort!(blobs, lt = (b1, b2) -> area(b1) > area(b2))
+    blobs
 end
 
 """
@@ -382,25 +466,23 @@ end
 
 Create a colorized version of img and draw the blob or chords on it.
 """
-function colorizedimage(bs::Vector{Blob}, img::AbstractArray)
-    off(ci, bs) = [ci.I[i] + bs.bounds.indices[i].start - 1 for i in eachindex(ci.I)]
+function colorizedimage(blobs::Vector{Blob}, img::AbstractArray)
     colors =
         convert.(
             RGB,
             distinguishable_colors(
-                length(bs) + 2,
+                length(blobs) + 2,
                 Color[RGB(253 / 255, 255 / 255, 255 / 255), RGB(0, 0, 0), RGB(0 / 255, 168 / 255, 45 / 255)],
                 transform = deuteranopic,
             )[3:end],
         )
     res = RGB.(img)
-    for (i, blob) in enumerate(bs)
-        c = colors[i]
-        foreach(ci -> res[ci] = blob[ci] ? 0.5 * c + 0.5 * img[ci] : img[ci], CartesianIndices(blob)) # draw interior
-        foreach(ci -> res[off(ci, blob)...] = c, perimeter(blob)) # draw perimeter
-        res[off(blob.pstart, blob)...] = RGB(1.0, 0.0, 0.0) # draw start of perimeter...
+    for (color, blob) in zip(colors, blobs)
+        for ci in filter(ci->blob[ci], CartesianIndices(blob))
+            res[ci] = color
+        end 
     end
-    return res
+    res
 end
 
 
@@ -438,4 +520,45 @@ function __offset(ci::CartesianIndices{N,R}, base::CartesianIndices{N,R}) where 
         eachindex(ci.indices),
     )
     return CartesianIndices{N,R}(tuple(rs...))
+end
+
+"""
+    perimeter_roughness(blob::Blob) 
+
+Computes a fractal-like measure of perimeter roughness.  Uses rulers of length 1, 2, 4, ...
+this routing measures the length of the perimeter of the particle.  Then it performs a 
+linear regression to the lengths as a function of the log2(ruler_length) to extract 
+a slope that is measure of the variability of the perimeter measure.
+"""
+function perimeter_roughness(blob::Blob) 
+    p = perimeter(blob)
+    max_st = Int(trunc(log2(length(p)÷5)))
+    pm=map(0:max_st) do x
+        step = 2^x
+        mean(0:step-1) do off
+            prev = p[off+1]
+            idx = (off+step+1):step:length(p)
+            sum(idx) do c
+                d = sqrt(sum((p[c].I .- prev.I).^2))
+                prev = p[c]
+                d
+            end*(length(p)/(idx.step*length(idx)))
+        end
+    end
+    df = DataFrame(:X=>0:max_st, :Y=>pm ./ pm[1])
+    ols = lm(@formula(Y ~ X), df)
+    coef(ols)[2]
+end
+
+"""
+    internal_blobs(blobs, th)
+
+Extracts those blobs that do not touch the perimeter.
+"""
+function internal_blobs(img, th)
+    function on_edge(bsi)
+        inner_test(cc) = cc[1]==1 || cc[2]==size(img,1) || cc[2] == 1 || cc[2]==size(img,2)
+        inner_test(bsi.bounds[1]) || inner_test(bsi.bounds[end])
+    end
+    filter(b->!on_edge(b), blob(img, th))
 end

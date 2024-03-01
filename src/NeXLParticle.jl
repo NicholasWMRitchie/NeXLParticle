@@ -52,6 +52,7 @@ export TernColorblind
 include("blob.jl")
 export Blob
 export blob
+export hosen_kopelman  # A "better blob(...)"
 export separate # Split agglomerated features in a Blob in many Blob(s)
 export multiseparate # Multithreshold algorithm to separate agglomerated blobs
 export curvature

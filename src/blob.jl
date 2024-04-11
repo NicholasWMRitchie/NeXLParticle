@@ -530,10 +530,10 @@ this routing measures the length of the perimeter of the particle.  Then it perf
 linear regression to the lengths as a function of the log2(ruler_length) to extract 
 a slope that is measure of the variability of the perimeter measure.
 """
-function perimeter_roughness(blob::Blob) 
+function perimeter_roughness(blob::Blob, min_ruler=0) 
     p = perimeter(blob)
     max_st = Int(trunc(log2(length(p)÷5)))
-    pm=map(0:max_st) do x
+    pm=map(min_ruler:max_st) do x
         step = 2^x
         mean(0:step-1) do off
             prev = p[off+1]
@@ -545,7 +545,7 @@ function perimeter_roughness(blob::Blob)
             end*(length(p)/(idx.step*length(idx)))
         end
     end
-    df = DataFrame(:X=>0:max_st, :Y=>pm ./ pm[1])
+    df = DataFrame(:X=>min_ruler:max_st, :Y=>pm ./ pm[1])
     ols = lm(@formula(Y ~ X), df)
     coef(ols)[2]
 end
